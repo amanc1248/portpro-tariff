@@ -34,8 +34,8 @@ exports.uploadMultipleImages = async (files, folder = 'gharbeti/properties') => 
       throw new Error('No files provided for upload');
     }
 
-    const uploadPromises = files.map(file => 
-      this.uploadImageBuffer(file.buffer, folder)
+    const uploadPromises = files.map(file =>
+      exports.uploadImageBuffer(file.buffer, folder)
     );
 
     const urls = await Promise.all(uploadPromises);
@@ -79,7 +79,7 @@ exports.deleteMultipleImages = async (imageUrls) => {
       return [];
     }
 
-    const deletePromises = imageUrls.map(url => this.deleteImage(url));
+    const deletePromises = imageUrls.map(url => exports.deleteImage(url));
     const results = await Promise.allSettled(deletePromises);
     
     return results;
@@ -100,11 +100,11 @@ exports.deleteMultipleImages = async (imageUrls) => {
 exports.replaceImages = async (newFiles, oldUrls, folder = 'gharbeti/properties') => {
   try {
     // Upload new images first
-    const newUrls = await this.uploadMultipleImages(newFiles, folder);
-    
+    const newUrls = await exports.uploadMultipleImages(newFiles, folder);
+
     // Delete old images (don't wait for completion, do it in background)
     if (oldUrls && oldUrls.length > 0) {
-      this.deleteMultipleImages(oldUrls).catch(err => {
+      exports.deleteMultipleImages(oldUrls).catch(err => {
         console.error('Background image deletion failed:', err);
       });
     }

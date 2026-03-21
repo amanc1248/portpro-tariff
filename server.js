@@ -43,8 +43,9 @@ socketService.init(io);
 app.use(helmet());
 
 // CORS middleware
+const allowedOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
   credentials: true
 }));
 
@@ -57,22 +58,26 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Rate limiting
+// Rate limiting — general
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
+
+// Rate limiting — stricter for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many auth attempts, please try again later.'
+});
 
 // ====================================
 // DATABASE CONNECTION
 // ====================================
 
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✅ MongoDB Connected Successfully');
     console.log(`📊 Database: ${mongoose.connection.name}`);
@@ -101,7 +106,7 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/chat', chatRoutes); // Register Chat Routes

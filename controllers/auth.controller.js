@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
+
+const googleClient = new OAuth2Client();
 
 /**
  * Generate JWT Token
@@ -14,6 +17,85 @@ const generateToken = (id) => {
 };
 
 const otpService = require('../services/otp.service');
+
+/**
+ * @desc    Google Sign-In
+ * @route   POST /api/auth/google
+ * @access  Public
+ */
+exports.googleSignIn = asyncHandler(async (req, res) => {
+  const { idToken } = req.body;
+
+  if (!idToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'ID token is required'
+    });
+  }
+
+  // Verify the Google ID token
+  const googleClientIds = (process.env.GOOGLE_CLIENT_IDS || '').split(',').map(id => id.trim()).filter(Boolean);
+
+  if (googleClientIds.length === 0) {
+    return res.status(500).json({
+      success: false,
+      message: 'Google Sign-In is not configured'
+    });
+  }
+
+  const ticket = await googleClient.verifyIdToken({
+    idToken,
+    audience: googleClientIds
+  });
+
+  const payload = ticket.getPayload();
+  const { email, name, picture, sub: googleId } = payload;
+
+  // Check if user already exists
+  let user = await User.findOne({ email });
+  let isNewUser = false;
+
+  if (user) {
+    // Existing user - check if active
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact support.'
+      });
+    }
+
+    // Update photo if not set
+    if (!user.photoURL && picture) {
+      user.photoURL = picture;
+      await user.save({ validateBeforeSave: false });
+    }
+
+    await user.updateLastLogin();
+  } else {
+    // New user - create account
+    isNewUser = true;
+    user = await User.create({
+      name: name || 'Google User',
+      email,
+      password: `google_${googleId}_${Date.now()}`,
+      photoURL: picture || null,
+      isVerified: true,
+      role: 'tenant'
+    });
+
+    await user.updateLastLogin();
+  }
+
+  const token = generateToken(user._id);
+
+  res.status(isNewUser ? 201 : 200).json({
+    success: true,
+    message: isNewUser ? 'Account created successfully' : 'Login successful',
+    isNewUser,
+    token,
+    user: user.getPublicProfile()
+  });
+});
 
 /**
  * @desc    Request OTP
@@ -75,7 +157,9 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
   }
 
   // 2. Verified! Proceed to Login/Register logic (Similar to old phoneAuth)
-  console.log(`✅ OTP Verified for ${phone}. Proceeding to auth.`);
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`✅ OTP Verified for ${phone}. Proceeding to auth.`);
+  }
 
   // Check if user exists with this phone number
   let user = await User.findOne({ phone });
@@ -152,7 +236,9 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
 exports.signup = asyncHandler(async (req, res) => {
   const { name, email, password, role, phone } = req.body;
 
-  console.log('📱 Signup request body:', { name, email, role, phone });
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📱 Signup request received');
+  }
 
   // Check if user already exists
   const existingUser = await User.findOne({ email });
@@ -178,7 +264,9 @@ exports.signup = asyncHandler(async (req, res) => {
   }
 
   const user = await User.create(userData);
-  console.log('📱 Created user with phone:', user.phone);
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📱 User created successfully');
+  }
 
   // Generate token
   const token = generateToken(user._id);

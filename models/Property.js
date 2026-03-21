@@ -44,9 +44,9 @@ const propertySchema = new mongoose.Schema({
     },
     area: {
       type: String,
-      required: [true, 'Please provide area'],
       trim: true,
-      index: true
+      index: true,
+      default: ''
     },
     fullAddress: {
       type: String,

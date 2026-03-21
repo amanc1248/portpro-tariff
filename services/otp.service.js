@@ -39,14 +39,14 @@ const sendOtp = async (phone, channel = 'whatsapp') => {
             otp: hashedOtp
         });
 
-        console.log(`🔒 [OTP-SERVICE] Generated OTP for ${phone}: ${otp} (Channel: ${channel})`);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`🔒 [OTP-SERVICE] OTP generated for ${phone} (Channel: ${channel})`);
+        }
 
         // 6. Send via Channel
         if (process.env.MOCK_OTP === 'true' || !process.env.TWILIO_ACCOUNT_SID) {
             // MOCK MODE
-            console.log('================================================');
-            console.log(`📱 MOCK OTP SENT TO ${phone} via ${channel.toUpperCase()}: ${otp}`);
-            console.log('================================================');
+            console.log(`📱 MOCK OTP for ${phone} via ${channel.toUpperCase()} — check DB or use code: ${otp}`);
             return true;
         }
 

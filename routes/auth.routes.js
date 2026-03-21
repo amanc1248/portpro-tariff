@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  googleSignIn,
   requestOtp,
   verifyOtp,
   signup,
@@ -20,6 +21,13 @@ const {
 // ====================================
 // PUBLIC ROUTES
 // ====================================
+
+/**
+ * @route   POST /api/auth/google
+ * @desc    Google Sign-In
+ * @access  Public
+ */
+router.post('/google', googleSignIn);
 
 /**
  * @route   POST /api/auth/request-otp
