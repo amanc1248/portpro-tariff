@@ -44,7 +44,10 @@ exports.init = (socketIo) => {
 
                 // 3. Emit to room (everyone in this conversation)
                 // 'receive_message' event
-                io.to(conversationId).emit('receive_message', messageForClient);
+                io.to(conversationId).emit('receive_message', {
+                    ...messageForClient.toObject(),
+                    conversationId: conversationId
+                });
 
                 console.log(`Message sent in ${conversationId}: ${content}`);
 
