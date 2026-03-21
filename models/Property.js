@@ -34,6 +34,15 @@ const propertySchema = new mongoose.Schema({
     index: true
   },
 
+  purpose: {
+    type: String,
+    enum: {
+      values: ['living', 'business', 'both'],
+      message: 'Purpose must be: living, business, or both'
+    },
+    default: 'living'
+  },
+
   // Location Details
   location: {
     city: {
