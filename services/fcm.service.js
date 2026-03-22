@@ -128,21 +128,26 @@ const sendPushToUser = async (userId, notification, data = {}) => {
  * @param {string} messageContent - Message text
  * @param {string} conversationId - For deep linking
  */
-const sendChatPush = async (recipientId, senderName, messageContent, conversationId) => {
+const sendChatPush = async (recipientId, senderName, messageContent, conversationId, propertyTitle) => {
   const truncated =
     messageContent.length > 100
       ? messageContent.substring(0, 100) + '...'
       : messageContent;
 
+  const title = propertyTitle
+    ? `${senderName} · ${propertyTitle}`
+    : senderName;
+
   await sendPushToUser(
     recipientId,
     {
-      title: senderName,
+      title,
       body: truncated,
     },
     {
       type: 'chat',
       conversationId,
+      senderName,
     }
   );
 };

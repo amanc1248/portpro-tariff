@@ -22,6 +22,14 @@ const messageSchema = new mongoose.Schema({
     isSystemMessage: {
         type: Boolean,
         default: false
+    },
+    isEdited: {
+        type: Boolean,
+        default: false
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: true
