@@ -1,0 +1,140 @@
+const admin = require('firebase-admin');
+const User = require('../models/User');
+
+// Initialize Firebase Admin
+// Uses GOOGLE_APPLICATION_CREDENTIALS env var or default credentials on GCP
+let firebaseInitialized = false;
+
+const initFirebase = () => {
+  if (firebaseInitialized) return;
+
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      // Use service account JSON from env var
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+    } else {
+      // Use default credentials (works on GCP, or with GOOGLE_APPLICATION_CREDENTIALS)
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+      });
+    }
+    firebaseInitialized = true;
+    console.log('Firebase Admin initialized for push notifications');
+  } catch (error) {
+    console.error('Firebase Admin init failed:', error.message);
+    console.log('Push notifications will be disabled');
+  }
+};
+
+/**
+ * Send push notification to a specific user
+ * @param {string} userId - Recipient user ID
+ * @param {object} notification - { title, body }
+ * @param {object} data - Custom data payload for deep linking
+ */
+const sendPushToUser = async (userId, notification, data = {}) => {
+  if (!firebaseInitialized) return;
+
+  try {
+    const user = await User.findById(userId).select('fcmTokens');
+    if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+      return; // No tokens, user hasn't enabled notifications
+    }
+
+    const tokens = user.fcmTokens.filter(Boolean);
+    if (tokens.length === 0) return;
+
+    // Send to all user's devices
+    const message = {
+      notification: {
+        title: notification.title,
+        body: notification.body,
+      },
+      data: {
+        // All values must be strings
+        ...Object.fromEntries(
+          Object.entries(data).map(([k, v]) => [k, String(v)])
+        ),
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+      },
+      android: {
+        notification: {
+          channelId: 'gharbetibaa_messages',
+          priority: 'high',
+          sound: 'default',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    // Send to each token, remove invalid ones
+    const invalidTokens = [];
+
+    for (const token of tokens) {
+      try {
+        await admin.messaging().send({
+          ...message,
+          token,
+        });
+      } catch (err) {
+        if (
+          err.code === 'messaging/invalid-registration-token' ||
+          err.code === 'messaging/registration-token-not-registered'
+        ) {
+          invalidTokens.push(token);
+        }
+      }
+    }
+
+    // Clean up invalid tokens
+    if (invalidTokens.length > 0) {
+      await User.findByIdAndUpdate(userId, {
+        $pull: { fcmTokens: { $in: invalidTokens } },
+      });
+    }
+  } catch (error) {
+    console.error('Push notification error:', error.message);
+  }
+};
+
+/**
+ * Send chat message push notification
+ * @param {string} recipientId - Who to notify
+ * @param {string} senderName - Sender's display name
+ * @param {string} messageContent - Message text
+ * @param {string} conversationId - For deep linking
+ */
+const sendChatPush = async (recipientId, senderName, messageContent, conversationId) => {
+  const truncated =
+    messageContent.length > 100
+      ? messageContent.substring(0, 100) + '...'
+      : messageContent;
+
+  await sendPushToUser(
+    recipientId,
+    {
+      title: senderName,
+      body: truncated,
+    },
+    {
+      type: 'chat',
+      conversationId,
+    }
+  );
+};
+
+module.exports = {
+  initFirebase,
+  sendPushToUser,
+  sendChatPush,
+};

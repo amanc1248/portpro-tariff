@@ -35,6 +35,10 @@ const io = new Server(server, {
 // Initialize Socket Service
 socketService.init(io);
 
+// Initialize Firebase Admin for push notifications
+const { initFirebase } = require('./services/fcm.service');
+initFirebase();
+
 // ====================================
 // MIDDLEWARE
 // ====================================

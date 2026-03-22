@@ -10,7 +10,8 @@ const {
   updateProfile,
   updateRole,
   updatePassword,
-  deleteAccount
+  deleteAccount,
+  updateFcmToken
 } = require('../controllers/auth.controller');
 const { protect } = require('../middleware/auth.middleware');
 const {
@@ -88,6 +89,13 @@ router.put('/role', protect, updateRole);
  * @access  Private
  */
 router.put('/password', protect, updatePassword);
+
+/**
+ * @route   PUT /api/auth/fcm-token
+ * @desc    Register or remove FCM push notification token
+ * @access  Private
+ */
+router.put('/fcm-token', protect, updateFcmToken);
 
 /**
  * @route   DELETE /api/auth/account

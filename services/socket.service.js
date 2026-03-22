@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { sendChatPush } = require('./fcm.service');
 
 let io;
 
@@ -49,12 +50,32 @@ exports.init = (socketIo) => {
                     conversationId: conversationId
                 });
 
-                console.log(`Message sent in ${conversationId}: ${content}`);
+                // 4. Send push notification to other participants
+                const conversation = await Conversation.findById(conversationId)
+                    .populate('participants', 'name');
+                if (conversation) {
+                    const senderUser = conversation.participants.find(
+                        p => p._id.toString() === senderId
+                    );
+                    const senderName = senderUser?.name || 'Someone';
 
-                // Optional: Send notification to specific user room if they are not in the chat
-                // if (recipientId) {
-                //   io.to(recipientId).emit('notification', { ... });
-                // }
+                    for (const participant of conversation.participants) {
+                        if (participant._id.toString() !== senderId) {
+                            // Check if recipient is in the socket room (online in this chat)
+                            const recipientRoom = io.sockets.adapter.rooms.get(conversationId);
+                            const recipientSocketRoom = io.sockets.adapter.rooms.get(participant._id.toString());
+
+                            // Send push if recipient likely not viewing this chat
+                            // (We always send — FCM handles dedup, and foreground handling is on client)
+                            sendChatPush(
+                                participant._id.toString(),
+                                senderName,
+                                content,
+                                conversationId
+                            );
+                        }
+                    }
+                }
 
             } catch (error) {
                 console.error('Socket send_message error:', error);

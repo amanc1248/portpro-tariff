@@ -540,3 +540,42 @@ exports.deleteAccount = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Register or remove FCM token
+ * @route   PUT /api/auth/fcm-token
+ * @access  Private
+ */
+exports.updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken, action } = req.body;
+
+  if (!fcmToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'FCM token is required'
+    });
+  }
+
+  const user = await User.findById(req.user._id);
+
+  if (action === 'remove') {
+    user.fcmTokens = (user.fcmTokens || []).filter(t => t !== fcmToken);
+  } else {
+    // Register — add if not already present
+    if (!user.fcmTokens) user.fcmTokens = [];
+    if (!user.fcmTokens.includes(fcmToken)) {
+      user.fcmTokens.push(fcmToken);
+    }
+    // Keep max 5 tokens per user (multiple devices)
+    if (user.fcmTokens.length > 5) {
+      user.fcmTokens = user.fcmTokens.slice(-5);
+    }
+  }
+
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json({
+    success: true,
+    message: action === 'remove' ? 'Token removed' : 'Token registered'
+  });
+});
+

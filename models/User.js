@@ -121,8 +121,13 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
     default: Date.now
-  }
-  
+  },
+
+  // Push notification tokens (supports multiple devices)
+  fcmTokens: [{
+    type: String
+  }]
+
 }, {
   timestamps: true // Adds createdAt and updatedAt
 });
