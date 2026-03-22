@@ -8,23 +8,28 @@ let firebaseInitialized = false;
 const initFirebase = () => {
   if (firebaseInitialized) return;
 
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) {
+    console.log('⚠️  FIREBASE_SERVICE_ACCOUNT not set — push notifications disabled');
+    return;
+  }
+
   try {
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      // Use service account JSON from env var
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-    } else {
-      // Use default credentials (works on GCP, or with GOOGLE_APPLICATION_CREDENTIALS)
-      admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-      });
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch (parseErr) {
+      // Render may wrap the value in extra quotes
+      serviceAccount = JSON.parse(raw.replace(/^['"]|['"]$/g, ''));
     }
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
     firebaseInitialized = true;
-    console.log('Firebase Admin initialized for push notifications');
+    console.log('✅ Firebase Admin initialized — push notifications enabled');
   } catch (error) {
-    console.error('Firebase Admin init failed:', error.message);
+    console.error('❌ Firebase Admin init failed:', error.message);
     console.log('Push notifications will be disabled');
   }
 };
@@ -36,7 +41,10 @@ const initFirebase = () => {
  * @param {object} data - Custom data payload for deep linking
  */
 const sendPushToUser = async (userId, notification, data = {}) => {
-  if (!firebaseInitialized) return;
+  if (!firebaseInitialized) {
+    console.log('⚠️  Push skipped — Firebase not initialized');
+    return;
+  }
 
   try {
     const user = await User.findById(userId).select('fcmTokens');
@@ -45,7 +53,12 @@ const sendPushToUser = async (userId, notification, data = {}) => {
     }
 
     const tokens = user.fcmTokens.filter(Boolean);
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+      console.log(`⚠️  No FCM tokens for user ${userId}`);
+      return;
+    }
+
+    console.log(`📱 Sending push to user ${userId} (${tokens.length} devices)`);
 
     // Send to all user's devices
     const message = {
@@ -87,6 +100,7 @@ const sendPushToUser = async (userId, notification, data = {}) => {
           token,
         });
       } catch (err) {
+        console.log(`❌ Push failed for token: ${err.code || err.message}`);
         if (
           err.code === 'messaging/invalid-registration-token' ||
           err.code === 'messaging/registration-token-not-registered'
