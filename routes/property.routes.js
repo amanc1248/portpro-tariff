@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   getProperties,
   getFeaturedProperties,
+  getExploreData,
   getProperty,
   createProperty,
   updateProperty,
@@ -38,6 +39,14 @@ router.get('/', getProperties);
  * @query   limit (default: 10)
  */
 router.get('/featured', getFeaturedProperties);
+
+/**
+ * @route   GET /api/properties/explore
+ * @desc    Get explore data — properties grouped by city
+ * @access  Public
+ * @query   propertyType, perCity
+ */
+router.get('/explore', getExploreData);
 
 /**
  * @route   GET /api/properties/:id

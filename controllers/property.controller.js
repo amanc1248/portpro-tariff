@@ -162,6 +162,75 @@ exports.getFeaturedProperties = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Get explore data — properties grouped by city
+ * @route   GET /api/properties/explore
+ * @access  Public
+ * @query   propertyType (optional), perCity (default: 8)
+ */
+exports.getExploreData = asyncHandler(async (req, res) => {
+  const { propertyType } = req.query;
+  const perCity = parseInt(req.query.perCity) || 8;
+
+  const baseFilter = {
+    isActive: true,
+    status: 'available',
+  };
+
+  if (propertyType) {
+    baseFilter.propertyType = Array.isArray(propertyType)
+      ? { $in: propertyType }
+      : propertyType;
+  }
+
+  // Get featured/premium properties
+  const featured = await Property.find({
+    ...baseFilter,
+    $or: [{ isFeatured: true }, { isPremium: true }]
+  })
+    .sort('-createdAt')
+    .limit(6)
+    .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+
+  // Get distinct cities that have properties
+  const cityCounts = await Property.aggregate([
+    { $match: baseFilter },
+    {
+      $group: {
+        _id: '$location.city',
+        count: { $sum: 1 }
+      }
+    },
+    { $sort: { count: -1 } }
+  ]);
+
+  // For each city, get top N properties
+  const cities = [];
+  for (const { _id: cityName, count } of cityCounts) {
+    if (!cityName) continue;
+
+    const properties = await Property.find({
+      ...baseFilter,
+      'location.city': cityName
+    })
+      .sort('-createdAt')
+      .limit(perCity)
+      .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+
+    cities.push({
+      city: cityName,
+      count,
+      properties
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    featured,
+    cities
+  });
+});
+
+/**
  * @desc    Get single property by ID
  * @route   GET /api/properties/:id
  * @access  Public
