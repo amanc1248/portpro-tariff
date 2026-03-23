@@ -3,6 +3,8 @@ const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const { uploadMultipleImages, deleteMultipleImages } = require('../utils/imageUpload');
 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * @desc    Get all properties with filters and pagination
  * @route   GET /api/properties
@@ -40,7 +42,7 @@ exports.getProperties = asyncHandler(async (req, res) => {
 
   // Location filters
   if (city) filter['location.city'] = city;
-  if (area) filter['location.area'] = { $regex: area, $options: 'i' };
+  if (area) filter['location.area'] = { $regex: escapeRegex(area), $options: 'i' };
 
   // Geospatial Search (Radius in km)
   const { lat, lng, radius } = req.query;

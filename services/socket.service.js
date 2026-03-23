@@ -1,3 +1,4 @@
+const jwt = require('jsonwebtoken');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { sendChatPush } = require('./fcm.service');
@@ -7,8 +8,23 @@ let io;
 exports.init = (socketIo) => {
     io = socketIo;
 
+    // Socket authentication middleware
+    io.use((socket, next) => {
+        const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+        if (!token) {
+            return next(new Error('Authentication required'));
+        }
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.userId = decoded.id;
+            next();
+        } catch (err) {
+            return next(new Error('Invalid or expired token'));
+        }
+    });
+
     io.on('connection', (socket) => {
-        console.log(`👤 User Connected: ${socket.id}`);
+        console.log(`👤 User Connected: ${socket.id} (userId: ${socket.userId})`);
 
         // Join a room (conversation or user's own room)
         socket.on('join_chat', (room) => {
@@ -18,6 +34,10 @@ exports.init = (socketIo) => {
         // ─── SEND MESSAGE ───
         socket.on('send_message', async (data) => {
             try {
+                if (!data.conversationId || !data.senderId || !data.content?.trim()) {
+                    return socket.emit('error', { message: 'Invalid message data' });
+                }
+
                 const { conversationId, senderId, content } = data;
 
                 const newMessage = await Message.create({
@@ -111,10 +131,10 @@ exports.init = (socketIo) => {
 
         // ─── EDIT MESSAGE ───
         socket.on('edit_message', async (data) => {
-            // data: { messageId, conversationId, senderId, newContent }
+            // data: { messageId, conversationId, newContent }
             try {
                 const message = await Message.findById(data.messageId);
-                if (!message || message.sender.toString() !== data.senderId) return;
+                if (!message || message.sender.toString() !== socket.userId) return;
                 if (message.isDeleted) return;
 
                 message.content = data.newContent;
@@ -134,10 +154,10 @@ exports.init = (socketIo) => {
 
         // ─── DELETE MESSAGE ───
         socket.on('delete_message', async (data) => {
-            // data: { messageId, conversationId, senderId }
+            // data: { messageId, conversationId }
             try {
                 const message = await Message.findById(data.messageId);
-                if (!message || message.sender.toString() !== data.senderId) return;
+                if (!message || message.sender.toString() !== socket.userId) return;
 
                 message.isDeleted = true;
                 message.content = 'This message was deleted';

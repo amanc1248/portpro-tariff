@@ -9,6 +9,14 @@ const rateLimit = require('express-rate-limit');
 // Load environment variables
 dotenv.config();
 
+// Validate required environment variables
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+const missing = requiredEnvVars.filter(v => !process.env[v]);
+if (missing.length > 0) {
+  console.error(`Missing required environment variables: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const propertyRoutes = require('./routes/property.routes');
@@ -48,9 +56,10 @@ app.use(helmet());
 
 // CORS middleware
 const allowedOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
+const isWildcard = allowedOrigins.includes('*');
 app.use(cors({
-  origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
-  credentials: true
+  origin: isWildcard ? '*' : allowedOrigins,
+  credentials: !isWildcard
 }));
 
 // Body parser middleware
