@@ -10,7 +10,7 @@ const {
   clearAllFavorites
 } = require('../controllers/favorite.controller');
 const { protect } = require('../middleware/auth.middleware');
-const { objectIdValidation } = require('../utils/validators');
+const { objectIdValidation, propertyIdValidation } = require('../utils/validators');
 
 // All favorite routes require authentication
 router.use(protect);
@@ -47,14 +47,14 @@ router.delete('/clear', clearAllFavorites);
  * @desc    Check if property is favorited by user
  * @access  Private
  */
-router.get('/check/:propertyId', objectIdValidation, checkIfFavorited);
+router.get('/check/:propertyId', propertyIdValidation, checkIfFavorited);
 
 /**
  * @route   DELETE /api/favorites/property/:propertyId
  * @desc    Remove property from favorites by property ID
  * @access  Private
  */
-router.delete('/property/:propertyId', objectIdValidation, removeByPropertyId);
+router.delete('/property/:propertyId', propertyIdValidation, removeByPropertyId);
 
 /**
  * @route   DELETE /api/favorites/:id

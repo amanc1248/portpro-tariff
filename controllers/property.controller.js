@@ -357,7 +357,8 @@ exports.updateProperty = asyncHandler(async (req, res) => {
   }
 
   // Check if user owns this property
-  if (property.owner.toString() !== req.user._id.toString()) {
+  const ownerId = property.owner._id || property.owner;
+  if (ownerId.toString() !== req.user._id.toString()) {
     return res.status(403).json({
       success: false,
       message: 'Not authorized to update this property'

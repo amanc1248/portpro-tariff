@@ -1,10 +1,5 @@
-const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const dotenv = require('dotenv');
-const rateLimit = require('express-rate-limit');
 
 // Load environment variables
 dotenv.config();
@@ -17,74 +12,8 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-// Import routes
-const authRoutes = require('./routes/auth.routes');
-const propertyRoutes = require('./routes/property.routes');
-const favoriteRoutes = require('./routes/favorite.routes');
-const errorHandler = require('./middleware/error.middleware');
-
-const http = require('http'); // Import http
-const { Server } = require('socket.io'); // Import Socket.io
-const socketService = require('./services/socket.service'); // Import Socket Service
-
-// Initialize Express app
-const app = express();
-const server = http.createServer(app); // Create HTTP server
-
-// Initialize Socket.io
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || '*',
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
-});
-
-// Initialize Socket Service
-socketService.init(io);
-
-// Initialize Firebase Admin for push notifications
-const { initFirebase } = require('./services/fcm.service');
-initFirebase();
-
-// ====================================
-// MIDDLEWARE
-// ====================================
-
-// Security middleware
-app.use(helmet());
-
-// CORS middleware
-const allowedOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
-const isWildcard = allowedOrigins.includes('*');
-app.use(cors({
-  origin: isWildcard ? '*' : allowedOrigins,
-  credentials: !isWildcard
-}));
-
-// Body parser middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Logging middleware
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
-
-// Rate limiting — general
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
-
-// Rate limiting — stricter for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: 'Too many auth attempts, please try again later.'
-});
+// Import app after env vars are loaded
+const { server } = require('./app');
 
 // ====================================
 // DATABASE CONNECTION
@@ -101,48 +30,12 @@ mongoose.connect(process.env.MONGODB_URI)
   });
 
 // ====================================
-// ROUTES
-// ====================================
-
-// Import new Chat Routes
-const chatRoutes = require('./routes/chat.routes');
-const settingsRoutes = require('./routes/settings.routes');
-
-// Health check route
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: '🏠 Gharbeti API Server is Running!',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// API Routes
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/favorites', favoriteRoutes);
-app.use('/api/chat', chatRoutes); // Register Chat Routes
-app.use('/api/settings', settingsRoutes); // Register Settings Routes
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found'
-  });
-});
-
-// Error handling middleware (must be last)
-app.use(errorHandler);
-
-// ====================================
 // START SERVER
 // ====================================
 
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT, () => { // Use server.listen instead of app.listen
+server.listen(PORT, () => {
   console.log('');
   console.log('╔════════════════════════════════════════╗');
   console.log('║   🏠 GHARBETI API SERVER STARTED      ║');
@@ -169,4 +62,3 @@ process.on('unhandledRejection', (err) => {
   // Close server & exit process
   process.exit(1);
 });
-

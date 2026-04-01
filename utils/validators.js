@@ -115,7 +115,18 @@ const objectIdValidation = [
   param('id')
     .isMongoId()
     .withMessage('Invalid ID format'),
-  
+
+  validate
+];
+
+/**
+ * MongoDB ObjectId Validation for :propertyId param
+ */
+const propertyIdValidation = [
+  param('propertyId')
+    .isMongoId()
+    .withMessage('Invalid property ID format'),
+
   validate
 ];
 
@@ -124,6 +135,7 @@ module.exports = {
   signupValidation,
   signinValidation,
   createPropertyValidation,
-  objectIdValidation
+  objectIdValidation,
+  propertyIdValidation
 };
 
