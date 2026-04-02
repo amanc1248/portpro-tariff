@@ -123,6 +123,12 @@ const userSchema = new mongoose.Schema({
     default: Date.now
   },
 
+  // Last Active (updated on socket disconnect)
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
+
   // Push notification tokens (supports multiple devices)
   fcmTokens: [{
     type: String

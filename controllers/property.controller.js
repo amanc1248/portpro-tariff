@@ -167,11 +167,14 @@ exports.getFeaturedProperties = asyncHandler(async (req, res) => {
  * @desc    Get explore data — properties grouped by city
  * @route   GET /api/properties/explore
  * @access  Public
- * @query   propertyType (optional), perCity (default: 8)
+ * @query   propertyType, minRent, maxRent, sort, amenities, perCity
  */
 exports.getExploreData = asyncHandler(async (req, res) => {
-  const { propertyType } = req.query;
+  const { propertyType, amenities } = req.query;
   const perCity = parseInt(req.query.perCity) || 8;
+  const minRent = parseInt(req.query.minRent);
+  const maxRent = parseInt(req.query.maxRent);
+  const sortParam = req.query.sort || '-createdAt';
 
   const baseFilter = {
     isActive: true,
@@ -184,12 +187,28 @@ exports.getExploreData = asyncHandler(async (req, res) => {
       : propertyType;
   }
 
+  // Price filter
+  if (!isNaN(minRent) || !isNaN(maxRent)) {
+    baseFilter.rent = {};
+    if (!isNaN(minRent) && minRent > 0) baseFilter.rent.$gte = minRent;
+    if (!isNaN(maxRent) && maxRent < 100000) baseFilter.rent.$lte = maxRent;
+    if (Object.keys(baseFilter.rent).length === 0) delete baseFilter.rent;
+  }
+
+  // Amenities filter
+  if (amenities) {
+    const amenityList = Array.isArray(amenities) ? amenities : [amenities];
+    for (const a of amenityList) {
+      baseFilter[`amenities.${a}`] = true;
+    }
+  }
+
   // Get featured/premium properties
   const featured = await Property.find({
     ...baseFilter,
     $or: [{ isFeatured: true }, { isPremium: true }]
   })
-    .sort('-createdAt')
+    .sort(sortParam)
     .limit(6)
     .populate('owner', 'name phone photoURL rating totalRatings isVerified');
 
@@ -214,7 +233,7 @@ exports.getExploreData = asyncHandler(async (req, res) => {
       ...baseFilter,
       'location.city': cityName
     })
-      .sort('-createdAt')
+      .sort(sortParam)
       .limit(perCity)
       .populate('owner', 'name phone photoURL rating totalRatings isVerified');
 

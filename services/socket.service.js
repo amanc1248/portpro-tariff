@@ -1,9 +1,13 @@
 const jwt = require('jsonwebtoken');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const User = require('../models/User');
 const { sendChatPush } = require('./fcm.service');
 
 let io;
+
+// Track online users: userId -> Set<socketId>
+const onlineUsers = new Map();
 
 exports.init = (socketIo) => {
     io = socketIo;
@@ -26,9 +30,41 @@ exports.init = (socketIo) => {
     io.on('connection', (socket) => {
         console.log(`👤 User Connected: ${socket.id} (userId: ${socket.userId})`);
 
+        // Track online status
+        if (socket.userId) {
+            if (!onlineUsers.has(socket.userId)) {
+                onlineUsers.set(socket.userId, new Set());
+            }
+            onlineUsers.get(socket.userId).add(socket.id);
+        }
+
         // Join a room (conversation or user's own room)
         socket.on('join_chat', (room) => {
             socket.join(room);
+        });
+
+        // ─── USER STATUS ───
+        socket.on('get_user_status', async (data) => {
+            // data: { userId }
+            const targetUserId = data?.userId;
+            if (!targetUserId) return;
+
+            const isOnline = onlineUsers.has(targetUserId) && onlineUsers.get(targetUserId).size > 0;
+
+            if (isOnline) {
+                socket.emit('user_status', { userId: targetUserId, isOnline: true });
+            } else {
+                try {
+                    const user = await User.findById(targetUserId).select('lastActive');
+                    socket.emit('user_status', {
+                        userId: targetUserId,
+                        isOnline: false,
+                        lastActive: user?.lastActive || null,
+                    });
+                } catch (_) {
+                    socket.emit('user_status', { userId: targetUserId, isOnline: false, lastActive: null });
+                }
+            }
         });
 
         // ─── SEND MESSAGE ───
@@ -172,8 +208,20 @@ exports.init = (socketIo) => {
             }
         });
 
-        socket.on('disconnect', () => {
-            // Silent disconnect
+        socket.on('disconnect', async () => {
+            if (socket.userId) {
+                const sockets = onlineUsers.get(socket.userId);
+                if (sockets) {
+                    sockets.delete(socket.id);
+                    if (sockets.size === 0) {
+                        onlineUsers.delete(socket.userId);
+                        // Update lastActive in DB
+                        try {
+                            await User.findByIdAndUpdate(socket.userId, { lastActive: new Date() });
+                        } catch (_) {}
+                    }
+                }
+            }
         });
     });
 };
