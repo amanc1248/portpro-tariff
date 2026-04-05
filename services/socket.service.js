@@ -9,6 +9,42 @@ let io;
 // Track online users: userId -> Set<socketId>
 const onlineUsers = new Map();
 
+// Simple socket rate limiter: socketId:event -> [timestamps]
+const socketRates = new Map();
+const RATE_LIMITS = {
+  send_message: { max: 10, windowMs: 1000 },   // 10 messages/sec
+  typing: { max: 5, windowMs: 1000 },           // 5/sec
+  get_user_status: { max: 10, windowMs: 5000 }, // 10 per 5sec
+  messages_read: { max: 5, windowMs: 1000 },    // 5/sec
+  edit_message: { max: 5, windowMs: 5000 },     // 5 per 5sec
+  delete_message: { max: 5, windowMs: 5000 },   // 5 per 5sec
+};
+
+function checkSocketRate(socketId, event) {
+  const config = RATE_LIMITS[event];
+  if (!config) return true;
+
+  const key = `${socketId}:${event}`;
+  const now = Date.now();
+  const timestamps = (socketRates.get(key) || []).filter(t => t > now - config.windowMs);
+
+  if (timestamps.length >= config.max) return false;
+
+  timestamps.push(now);
+  socketRates.set(key, timestamps);
+  return true;
+}
+
+// Clean up stale rate limit entries every 60s
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamps] of socketRates) {
+    const filtered = timestamps.filter(t => t > now - 10000);
+    if (filtered.length === 0) socketRates.delete(key);
+    else socketRates.set(key, filtered);
+  }
+}, 60000);
+
 exports.init = (socketIo) => {
     io = socketIo;
 
@@ -39,8 +75,20 @@ exports.init = (socketIo) => {
         }
 
         // Join a room (conversation or user's own room)
-        socket.on('join_chat', (room) => {
-            socket.join(room);
+        socket.on('join_chat', async (room) => {
+            try {
+                const conversation = await Conversation.findOne({
+                    _id: room,
+                    participants: socket.userId
+                });
+                if (conversation) {
+                    socket.join(room);
+                } else {
+                    socket.emit('error', { message: 'Not authorized to join this conversation' });
+                }
+            } catch (err) {
+                socket.emit('error', { message: 'Invalid conversation' });
+            }
         });
 
         // ─── USER STATUS ───
@@ -70,11 +118,19 @@ exports.init = (socketIo) => {
         // ─── SEND MESSAGE ───
         socket.on('send_message', async (data) => {
             try {
-                if (!data.conversationId || !data.senderId || !data.content?.trim()) {
+                if (!checkSocketRate(socket.id, 'send_message')) {
+                    return socket.emit('error', { message: 'Too many messages, slow down' });
+                }
+                if (!data.conversationId || !data.content?.trim()) {
                     return socket.emit('error', { message: 'Invalid message data' });
                 }
+                // Validate content length
+                if (typeof data.content !== 'string' || data.content.trim().length > 5000) {
+                    return socket.emit('error', { message: 'Message too long (max 5000 chars)' });
+                }
 
-                const { conversationId, senderId, content } = data;
+                const { conversationId, content } = data;
+                const senderId = socket.userId;
 
                 const newMessage = await Message.create({
                     conversationId,
@@ -128,6 +184,7 @@ exports.init = (socketIo) => {
 
         // ─── TYPING INDICATORS ───
         socket.on('typing', (data) => {
+            if (!checkSocketRate(socket.id, 'typing')) return;
             // data: { conversationId, userId, userName }
             socket.to(data.conversationId).emit('user_typing', {
                 conversationId: data.conversationId,
@@ -145,6 +202,7 @@ exports.init = (socketIo) => {
 
         // ─── READ RECEIPTS ───
         socket.on('messages_read', async (data) => {
+            if (!checkSocketRate(socket.id, 'messages_read')) return;
             // data: { conversationId, userId }
             try {
                 await Message.updateMany(
@@ -167,6 +225,7 @@ exports.init = (socketIo) => {
 
         // ─── EDIT MESSAGE ───
         socket.on('edit_message', async (data) => {
+            if (!checkSocketRate(socket.id, 'edit_message')) return;
             // data: { messageId, conversationId, newContent }
             try {
                 const message = await Message.findById(data.messageId);
@@ -190,6 +249,7 @@ exports.init = (socketIo) => {
 
         // ─── DELETE MESSAGE ───
         socket.on('delete_message', async (data) => {
+            if (!checkSocketRate(socket.id, 'delete_message')) return;
             // data: { messageId, conversationId }
             try {
                 const message = await Message.findById(data.messageId);

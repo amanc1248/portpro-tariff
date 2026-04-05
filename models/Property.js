@@ -250,6 +250,13 @@ const propertySchema = new mongoose.Schema({
     index: true
   },
 
+  // Ranking
+  rankScore: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+
   // Listing Expiry
   expiresAt: {
     type: Date,
@@ -273,6 +280,12 @@ propertySchema.index({ status: 1, isActive: 1 });
 propertySchema.index({ createdAt: -1 });
 propertySchema.index({ isPremium: 1, isFeatured: 1 });
 propertySchema.index({ views: -1 });
+propertySchema.index({ rankScore: -1 });
+
+// Compound indexes for common query patterns
+propertySchema.index({ isActive: 1, status: 1, 'location.city': 1, rankScore: -1 });
+propertySchema.index({ isActive: 1, status: 1, rankScore: -1 });
+propertySchema.index({ isActive: 1, status: 1, rent: 1 });
 
 // Compound text index for search
 propertySchema.index({
@@ -306,19 +319,11 @@ propertySchema.virtual('isHighlighted').get(function () {
 // MIDDLEWARE
 // ====================================
 
-/**
- * Populate owner details when querying
- */
-propertySchema.pre(/^find/, function (next) {
-  this.populate({
-    path: 'owner',
-    select: 'name email phone photoURL rating totalRatings isVerified'
-  });
-  next();
-});
+// NOTE: Auto-populate removed for performance. Use explicit .populate() in controllers.
 
 /**
- * Check and update premium/featured status based on expiry
+ * Check and update premium/featured status based on expiry,
+ * and recompute rank score on every save.
  */
 propertySchema.pre('save', function (next) {
   const now = new Date();
@@ -329,6 +334,11 @@ propertySchema.pre('save', function (next) {
     this.isFeatured = false;
   }
 
+  // Recompute rank score
+  if (this.createdAt) {
+    this.computeRankScore();
+  }
+
   next();
 });
 
@@ -337,11 +347,37 @@ propertySchema.pre('save', function (next) {
 // ====================================
 
 /**
+ * Compute rank score based on engagement metrics and recency.
+ * Formula: views×1 + totalFavorites×3 + clicksOnCall×5 + recencyBoost + verifiedBoost
+ * Recency boost: max 50 points, decays linearly over 30 days
+ */
+propertySchema.methods.computeRankScore = function () {
+  const engagementScore =
+    (this.views || 0) * 1 +
+    (this.totalFavorites || 0) * 3 +
+    (this.clicksOnCall || 0) * 5;
+
+  // Recency: up to 50 points, decays over 30 days
+  const ageInDays = (Date.now() - new Date(this.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+  const recencyBoost = Math.max(0, 50 - (ageInDays * (50 / 30)));
+
+  // Verified listings get a boost
+  const verifiedBoost = this.isVerified ? 20 : 0;
+
+  this.rankScore = Math.round(engagementScore + recencyBoost + verifiedBoost);
+  return this.rankScore;
+};
+
+/**
  * Increment view count
  */
 propertySchema.methods.incrementViews = async function () {
   this.views += 1;
-  await this.save({ validateBeforeSave: false });
+  this.computeRankScore();
+  await this.constructor.updateOne(
+    { _id: this._id },
+    { $inc: { views: 1 }, $set: { rankScore: this.rankScore } }
+  );
 };
 
 /**
@@ -349,7 +385,11 @@ propertySchema.methods.incrementViews = async function () {
  */
 propertySchema.methods.incrementCallClicks = async function () {
   this.clicksOnCall += 1;
-  await this.save({ validateBeforeSave: false });
+  this.computeRankScore();
+  await this.constructor.updateOne(
+    { _id: this._id },
+    { $inc: { clicksOnCall: 1 }, $set: { rankScore: this.rankScore } }
+  );
 };
 
 /**
@@ -408,6 +448,56 @@ propertySchema.statics.getFeatured = function (limit = 10) {
  * @param {number} limit - Number of properties to return
  * @returns {Promise<Array>} Array of properties
  */
+/**
+ * Recalculate rank scores for all active properties
+ */
+propertySchema.statics.recalculateRankScores = async function () {
+  const batchSize = 500;
+  let updated = 0;
+  let skip = 0;
+
+  while (true) {
+    const properties = await this.find({ isActive: true })
+      .select('views totalFavorites clicksOnCall createdAt isVerified rankScore')
+      .skip(skip)
+      .limit(batchSize)
+      .lean();
+
+    if (properties.length === 0) break;
+
+    const bulkOps = [];
+    for (const prop of properties) {
+      // Compute rank score inline (lean docs don't have methods)
+      const engagementScore =
+        (prop.views || 0) * 1 +
+        (prop.totalFavorites || 0) * 3 +
+        (prop.clicksOnCall || 0) * 5;
+      const ageInDays = (Date.now() - new Date(prop.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+      const recencyBoost = Math.max(0, 50 - (ageInDays * (50 / 30)));
+      const verifiedBoost = prop.isVerified ? 20 : 0;
+      const newScore = Math.round(engagementScore + recencyBoost + verifiedBoost);
+
+      if (newScore !== prop.rankScore) {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: prop._id },
+            update: { $set: { rankScore: newScore } }
+          }
+        });
+      }
+    }
+
+    if (bulkOps.length > 0) {
+      const result = await this.bulkWrite(bulkOps);
+      updated += result.modifiedCount;
+    }
+
+    skip += batchSize;
+  }
+
+  return updated;
+};
+
 propertySchema.statics.getByCity = function (city, limit = 20) {
   return this.find({
     'location.city': city,
@@ -417,17 +507,6 @@ propertySchema.statics.getByCity = function (city, limit = 20) {
     .sort('-createdAt')
     .limit(limit);
 };
-
-// ====================================
-// TEXT SEARCH INDEX
-// ====================================
-// Create text index for searching by title and description
-propertySchema.index({
-  title: 'text',
-  description: 'text',
-  'location.area': 'text',
-  'location.fullAddress': 'text'
-});
 
 // ====================================
 // EXPORT MODEL

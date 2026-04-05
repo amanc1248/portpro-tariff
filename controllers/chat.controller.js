@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const asyncHandler = require('../utils/asyncHandler');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
@@ -17,21 +18,31 @@ exports.getConversations = asyncHandler(async (req, res) => {
         .sort({ 'lastMessage.createdAt': -1 })
         .lean(); // Convert to plain JS objects for modification
 
-    // Add unread count to each conversation
-    const conversationsWithUnread = await Promise.all(
-        conversations.map(async (conversation) => {
-            const unreadCount = await Message.countDocuments({
-                conversationId: conversation._id,
-                sender: { $ne: req.user.id }, // Not sent by current user
-                readBy: { $ne: req.user.id } // Not read by current user
-            });
+    // Batch unread counts in a single aggregation
+    const conversationIds = conversations.map(c => c._id);
+    const unreadCounts = await Message.aggregate([
+        {
+            $match: {
+                conversationId: { $in: conversationIds },
+                sender: { $ne: new mongoose.Types.ObjectId(req.user.id) },
+                readBy: { $ne: new mongoose.Types.ObjectId(req.user.id) }
+            }
+        },
+        {
+            $group: {
+                _id: '$conversationId',
+                count: { $sum: 1 }
+            }
+        }
+    ]);
 
-            return {
-                ...conversation,
-                unreadCount
-            };
-        })
-    );
+    const unreadMap = {};
+    unreadCounts.forEach(u => { unreadMap[u._id.toString()] = u.count; });
+
+    const conversationsWithUnread = conversations.map(conversation => ({
+        ...conversation,
+        unreadCount: unreadMap[conversation._id.toString()] || 0
+    }));
 
     res.status(200).json({
         success: true,
@@ -63,14 +74,32 @@ exports.getMessages = asyncHandler(async (req, res) => {
         });
     }
 
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
     const messages = await Message.find({ conversationId })
-        .sort({ createdAt: 1 }); // Oldest first
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+    // Reverse to get chronological order for the client
+    messages.reverse();
+
+    const total = await Message.countDocuments({ conversationId });
 
     res.status(200).json({
         success: true,
         count: messages.length,
+        total,
         data: messages,
-        conversation: conversation // Include conversation with property
+        conversation,
+        pagination: {
+            page,
+            limit,
+            pages: Math.ceil(total / limit),
+            hasMore: page * limit < total
+        }
     });
 });
 

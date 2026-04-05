@@ -19,14 +19,27 @@ exports.getProperties = asyncHandler(async (req, res) => {
     maxRent,
     propertyType,
     amenities,
+    purpose,
     status,
     page = 1,
     limit = 20,
-    sort = '-createdAt'
+    sort = '-rankScore'
   } = req.query;
+
+  // Validate and cap pagination
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+  const skip = (safePage - 1) * safeLimit;
+
+  // Validate sort parameter
+  const allowedSortFields = ['-rankScore', '-createdAt', 'createdAt', 'rent', '-rent', '-views', '-totalFavorites'];
+  const safeSort = allowedSortFields.includes(sort) ? sort : '-rankScore';
 
   // Build filter object
   const filter = { isActive: true };
+
+  // Filter out expired listings
+  filter.expiresAt = { $gt: new Date() };
 
   // Only show available properties by default
   if (status) {
@@ -42,7 +55,7 @@ exports.getProperties = asyncHandler(async (req, res) => {
 
   // Location filters
   if (city) filter['location.city'] = city;
-  if (area) filter['location.area'] = { $regex: escapeRegex(area), $options: 'i' };
+  if (area) filter['location.area'] = { $regex: `^${escapeRegex(area)}`, $options: 'i' };
 
   // Geospatial Search (Radius in km)
   const { lat, lng, radius } = req.query;
@@ -77,16 +90,25 @@ exports.getProperties = asyncHandler(async (req, res) => {
     }
   }
 
-  // Amenities filter
+  // Validate amenities against allowed values
   if (amenities) {
+    const validAmenities = [
+      'water24x7', 'parking', 'bikeParking', 'carParking', 'wifi', 'furnished',
+      'semiFurnished', 'kitchen', 'attachedBathroom', 'balcony', 'garden',
+      'lift', 'security', 'cctv', 'generator', 'solarPanel'
+    ];
     const amenitiesArray = Array.isArray(amenities) ? amenities : amenities.split(',');
     amenitiesArray.forEach(amenity => {
-      filter[`amenities.${amenity}`] = true;
+      if (validAmenities.includes(amenity)) {
+        filter[`amenities.${amenity}`] = true;
+      }
     });
   }
 
-  // Pagination
-  const skip = (page - 1) * limit;
+  // Purpose filter
+  if (purpose) {
+    filter.purpose = purpose;
+  }
 
   // Build query
   let query = Property.find(filter);
@@ -98,13 +120,13 @@ exports.getProperties = asyncHandler(async (req, res) => {
     // If geospatial search, do NOT apply explicit sort as $near sorts by distance
     // and MongoDB throws error if we try to sort on top of $near
   } else {
-    query = query.sort(sort);
+    query = query.sort(safeSort);
   }
 
   // Execute query with pagination
   const properties = await query
     .skip(skip)
-    .limit(parseInt(limit))
+    .limit(safeLimit)
     .populate('owner', 'name phone photoURL rating totalRatings isVerified');
 
   // Create a separate filter for counting because $near is not supported in countDocuments
@@ -131,10 +153,10 @@ exports.getProperties = asyncHandler(async (req, res) => {
     total,
     properties,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      pages: Math.ceil(total / limit),
-      hasMore: page * limit < total
+      page: safePage,
+      limit: safeLimit,
+      pages: Math.ceil(total / safeLimit),
+      hasMore: safePage * safeLimit < total
     }
   });
 });
@@ -150,7 +172,8 @@ exports.getFeaturedProperties = asyncHandler(async (req, res) => {
   const properties = await Property.find({
     isActive: true,
     status: 'available',
-    isFeatured: true
+    isFeatured: true,
+    expiresAt: { $gt: new Date() }
   })
     .sort('-createdAt')
     .limit(limit)
@@ -171,14 +194,16 @@ exports.getFeaturedProperties = asyncHandler(async (req, res) => {
  */
 exports.getExploreData = asyncHandler(async (req, res) => {
   const { propertyType, amenities } = req.query;
-  const perCity = parseInt(req.query.perCity) || 8;
+  const perCity = Math.min(Math.max(parseInt(req.query.perCity) || 8, 1), 100);
   const minRent = parseInt(req.query.minRent);
   const maxRent = parseInt(req.query.maxRent);
-  const sortParam = req.query.sort || '-createdAt';
+  const allowedExploreSortFields = ['-rankScore', '-createdAt', 'createdAt', 'rent', '-rent', '-views', '-totalFavorites'];
+  const sortParam = allowedExploreSortFields.includes(req.query.sort) ? req.query.sort : '-rankScore';
 
   const baseFilter = {
     isActive: true,
     status: 'available',
+    expiresAt: { $gt: new Date() },
   };
 
   if (propertyType) {
@@ -195,11 +220,18 @@ exports.getExploreData = asyncHandler(async (req, res) => {
     if (Object.keys(baseFilter.rent).length === 0) delete baseFilter.rent;
   }
 
-  // Amenities filter
+  // Validate amenities against allowed values
   if (amenities) {
+    const validAmenities = [
+      'water24x7', 'parking', 'bikeParking', 'carParking', 'wifi', 'furnished',
+      'semiFurnished', 'kitchen', 'attachedBathroom', 'balcony', 'garden',
+      'lift', 'security', 'cctv', 'generator', 'solarPanel'
+    ];
     const amenityList = Array.isArray(amenities) ? amenities : [amenities];
     for (const a of amenityList) {
-      baseFilter[`amenities.${a}`] = true;
+      if (validAmenities.includes(a)) {
+        baseFilter[`amenities.${a}`] = true;
+      }
     }
   }
 
@@ -224,25 +256,21 @@ exports.getExploreData = asyncHandler(async (req, res) => {
     { $sort: { count: -1 } }
   ]);
 
-  // For each city, get top N properties
-  const cities = [];
-  for (const { _id: cityName, count } of cityCounts) {
-    if (!cityName) continue;
-
-    const properties = await Property.find({
-      ...baseFilter,
-      'location.city': cityName
-    })
-      .sort(sortParam)
-      .limit(perCity)
-      .populate('owner', 'name phone photoURL rating totalRatings isVerified');
-
-    cities.push({
-      city: cityName,
-      count,
-      properties
-    });
-  }
+  // For each city, get top N properties (in parallel)
+  const cities = await Promise.all(
+    cityCounts
+      .filter(({ _id }) => _id)
+      .map(async ({ _id: cityName, count }) => {
+        const properties = await Property.find({
+          ...baseFilter,
+          'location.city': cityName
+        })
+          .sort(sortParam)
+          .limit(perCity)
+          .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+        return { city: cityName, count, properties };
+      })
+  );
 
   res.status(200).json({
     success: true,
@@ -339,9 +367,33 @@ exports.createProperty = asyncHandler(async (req, res) => {
     }
   }
 
+  // Validate coordinates are within valid ranges
+  if (location && location.coordinates && Array.isArray(location.coordinates)) {
+    const [lng, lat] = location.coordinates;
+    if (isNaN(lng) || isNaN(lat) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid coordinates. Latitude must be -90 to 90, Longitude must be -180 to 180.'
+      });
+    }
+  }
+
+  // Whitelist allowed fields
+  const allowed = {};
+  const allowedFields = [
+    'title', 'description', 'propertyType', 'purpose',
+    'rent', 'securityDeposit', 'negotiable', 'electricityIncluded', 'waterIncluded',
+    'numberOfRooms', 'numberOfBathrooms', 'numberOfFloors', 'floorNumber', 'size', 'facing',
+    'petFriendly', 'bachelorsAllowed', 'familyOnly',
+    'availableFrom', 'minimumStayMonths'
+  ];
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) allowed[field] = req.body[field];
+  }
+
   // Create property
   const property = await Property.create({
-    ...req.body,
+    ...allowed,
     location,
     amenities,
     images: imageUrls,
@@ -436,11 +488,35 @@ exports.updateProperty = asyncHandler(async (req, res) => {
     }
   }
 
+  // Validate coordinates are within valid ranges
+  if (location && location.coordinates && Array.isArray(location.coordinates)) {
+    const [lng, lat] = location.coordinates;
+    if (isNaN(lng) || isNaN(lat) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid coordinates. Latitude must be -90 to 90, Longitude must be -180 to 180.'
+      });
+    }
+  }
+
+  // Whitelist allowed fields
+  const allowed = {};
+  const allowedFields = [
+    'title', 'description', 'propertyType', 'purpose',
+    'rent', 'securityDeposit', 'negotiable', 'electricityIncluded', 'waterIncluded',
+    'numberOfRooms', 'numberOfBathrooms', 'numberOfFloors', 'floorNumber', 'size', 'facing',
+    'petFriendly', 'bachelorsAllowed', 'familyOnly',
+    'availableFrom', 'minimumStayMonths', 'status'
+  ];
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) allowed[field] = req.body[field];
+  }
+
   // Update property
   property = await Property.findByIdAndUpdate(
     req.params.id,
     {
-      ...req.body,
+      ...allowed,
       location: location || property.location,
       amenities: amenities || property.amenities,
       images: imageUrls
@@ -508,18 +584,25 @@ exports.deleteProperty = asyncHandler(async (req, res) => {
 exports.getMyListings = asyncHandler(async (req, res) => {
   const { status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
+  // Validate and cap pagination
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+  const skip = (safePage - 1) * safeLimit;
+
+  // Validate sort parameter
+  const allowedSortFields = ['-rankScore', '-createdAt', 'createdAt', 'rent', '-rent', '-views', '-totalFavorites'];
+  const safeSort = allowedSortFields.includes(sort) ? sort : '-createdAt';
+
   const filter = { owner: req.user._id };
 
   if (status) {
     filter.status = status;
   }
 
-  const skip = (page - 1) * limit;
-
   const properties = await Property.find(filter)
-    .sort(sort)
+    .sort(safeSort)
     .skip(skip)
-    .limit(parseInt(limit));
+    .limit(safeLimit);
 
   const total = await Property.countDocuments(filter);
 
@@ -529,10 +612,10 @@ exports.getMyListings = asyncHandler(async (req, res) => {
     total,
     properties,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      pages: Math.ceil(total / limit),
-      hasMore: page * limit < total
+      page: safePage,
+      limit: safeLimit,
+      pages: Math.ceil(total / safeLimit),
+      hasMore: safePage * safeLimit < total
     }
   });
 });

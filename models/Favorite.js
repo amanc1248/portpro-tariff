@@ -57,10 +57,18 @@ favoriteSchema.pre(/^find/, function(next) {
  */
 favoriteSchema.post('save', async function() {
   try {
-    await this.model('Property').findByIdAndUpdate(
-      this.property,
-      { $inc: { totalFavorites: 1 } }
+    const Property = this.model('Property');
+    const prop = await Property.findById(this.property).select(
+      'views totalFavorites clicksOnCall createdAt isVerified rankScore'
     );
+    if (prop) {
+      prop.totalFavorites = (prop.totalFavorites || 0) + 1;
+      prop.computeRankScore();
+      await Property.updateOne(
+        { _id: prop._id },
+        { totalFavorites: prop.totalFavorites, rankScore: prop.rankScore }
+      );
+    }
   } catch (error) {
     console.error('Error updating property favorites count:', error);
   }
@@ -72,10 +80,18 @@ favoriteSchema.post('save', async function() {
 favoriteSchema.post('findOneAndDelete', async function(doc) {
   if (doc) {
     try {
-      await mongoose.model('Property').findByIdAndUpdate(
-        doc.property,
-        { $inc: { totalFavorites: -1 } }
+      const Property = mongoose.model('Property');
+      const prop = await Property.findById(doc.property).select(
+        'views totalFavorites clicksOnCall createdAt isVerified rankScore'
       );
+      if (prop) {
+        prop.totalFavorites = Math.max(0, (prop.totalFavorites || 0) - 1);
+        prop.computeRankScore();
+        await Property.updateOne(
+          { _id: prop._id },
+          { totalFavorites: prop.totalFavorites, rankScore: prop.rankScore }
+        );
+      }
     } catch (error) {
       console.error('Error updating property favorites count:', error);
     }

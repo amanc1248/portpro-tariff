@@ -20,11 +20,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Initialize Socket.io
+const socketOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
+const socketIsWildcard = socketOrigins.includes('*');
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || '*',
+    origin: socketIsWildcard ? '*' : socketOrigins,
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: !socketIsWildcard
   }
 });
 
@@ -81,12 +83,20 @@ if (process.env.NODE_ENV !== 'test') {
 // ====================================
 
 // Health check route
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: '🏠 Gharbeti API Server is Running!',
+const mongoose = require('mongoose');
+
+app.get('/', async (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbOk = dbState === 1; // 1 = connected
+
+  res.status(dbOk ? 200 : 503).json({
+    success: dbOk,
+    message: dbOk ? 'Gharbeti API Server is Running' : 'Service degraded',
     version: '1.0.0',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    services: {
+      database: dbOk ? 'connected' : 'disconnected',
+    }
   });
 });
 

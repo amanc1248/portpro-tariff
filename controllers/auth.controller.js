@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
+const Property = require('../models/Property');
 const asyncHandler = require('../utils/asyncHandler');
 
 const googleClient = new OAuth2Client();
@@ -533,6 +534,12 @@ exports.deleteAccount = asyncHandler(async (req, res) => {
   // Soft delete - deactivate account instead of permanently deleting
   user.isActive = false;
   await user.save();
+
+  // Deactivate all user's properties
+  await Property.updateMany(
+    { owner: req.user._id },
+    { isActive: false, status: 'rented' }
+  );
 
   res.status(200).json({
     success: true,

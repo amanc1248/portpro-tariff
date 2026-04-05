@@ -62,3 +62,24 @@ process.on('unhandledRejection', (err) => {
   // Close server & exit process
   process.exit(1);
 });
+
+// Graceful shutdown
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} received. Shutting down gracefully...`);
+  server.close(() => {
+    console.log('HTTP server closed');
+    mongoose.connection.close(false).then(() => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+
+  // Force exit after 10 seconds
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
