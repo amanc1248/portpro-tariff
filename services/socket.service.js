@@ -149,7 +149,7 @@ exports.init = (socketIo) => {
                     }
                 });
 
-                io.to(conversationId).emit('receive_message', {
+                socket.broadcast.to(conversationId).emit('receive_message', {
                     ...messageForClient.toObject(),
                     conversationId
                 });
@@ -236,7 +236,7 @@ exports.init = (socketIo) => {
                 message.isEdited = true;
                 await message.save();
 
-                io.to(data.conversationId).emit('message_edited', {
+                socket.broadcast.to(data.conversationId).emit('message_edited', {
                     messageId: data.messageId,
                     conversationId: data.conversationId,
                     newContent: data.newContent,
@@ -259,7 +259,7 @@ exports.init = (socketIo) => {
                 message.content = 'This message was deleted';
                 await message.save();
 
-                io.to(data.conversationId).emit('message_deleted', {
+                socket.broadcast.to(data.conversationId).emit('message_deleted', {
                     messageId: data.messageId,
                     conversationId: data.conversationId,
                 });

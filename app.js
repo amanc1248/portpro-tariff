@@ -12,6 +12,7 @@ const propertyRoutes = require('./routes/property.routes');
 const favoriteRoutes = require('./routes/favorite.routes');
 const chatRoutes = require('./routes/chat.routes');
 const settingsRoutes = require('./routes/settings.routes');
+const bookingRoutes = require('./routes/booking.routes');
 const errorHandler = require('./middleware/error.middleware');
 const socketService = require('./services/socket.service');
 
@@ -106,6 +107,7 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/bookings', bookingRoutes);
 
 // 404 handler
 app.use((req, res) => {
