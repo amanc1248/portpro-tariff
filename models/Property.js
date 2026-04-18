@@ -193,8 +193,8 @@ const propertySchema = new mongoose.Schema({
   status: {
     type: String,
     enum: {
-      values: ['available', 'rented'],
-      message: 'Status must be either available or rented'
+      values: ['available', 'booked', 'rented'],
+      message: 'Status must be available, booked, or rented'
     },
     default: 'available',
     index: true

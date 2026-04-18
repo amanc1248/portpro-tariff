@@ -13,7 +13,14 @@ const messageSchema = new mongoose.Schema({
     },
     content: {
         type: String,
-        required: true
+        required: function () {
+            return !this.imageUrl;
+        },
+        default: ''
+    },
+    imageUrl: {
+        type: String,
+        default: null
     },
     readBy: [{
         type: mongoose.Schema.Types.ObjectId,
@@ -22,6 +29,14 @@ const messageSchema = new mongoose.Schema({
     isSystemMessage: {
         type: Boolean,
         default: false
+    },
+    systemMessageType: {
+        type: String,
+        default: null
+    },
+    systemMessageMeta: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
     },
     isEdited: {
         type: Boolean,
