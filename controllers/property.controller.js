@@ -1,7 +1,11 @@
 const Property = require('../models/Property');
 const User = require('../models/User');
+const Conversation = require('../models/Conversation');
+const Message = require('../models/Message');
 const asyncHandler = require('../utils/asyncHandler');
 const { uploadMultipleImages, deleteMultipleImages } = require('../utils/imageUpload');
+const { getIo } = require('../services/socket.service');
+const { sendPushToUser } = require('../services/fcm.service');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -628,10 +632,10 @@ exports.getMyListings = asyncHandler(async (req, res) => {
 exports.updatePropertyStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
 
-  if (!status || !['available', 'rented'].includes(status)) {
+  if (!status || !['available', 'booked', 'rented'].includes(status)) {
     return res.status(400).json({
       success: false,
-      message: 'Please provide a valid status (available or rented)'
+      message: 'Please provide a valid status (available, booked, or rented)'
     });
   }
 
@@ -652,8 +656,20 @@ exports.updatePropertyStatus = asyncHandler(async (req, res) => {
     });
   }
 
+  const previousStatus = property.status;
   property.status = status;
   await property.save();
+
+  // Notify tenants in all conversations about this property when status changes
+  if (previousStatus !== status) {
+    try {
+      await notifyPropertyStatusChange(property, status, req.user._id);
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error sending property status notifications:', err);
+      }
+    }
+  }
 
   res.status(200).json({
     success: true,
@@ -661,6 +677,83 @@ exports.updatePropertyStatus = asyncHandler(async (req, res) => {
     property
   });
 });
+
+/**
+ * Notify all tenants chatting about a property when its status changes.
+ * Sends system messages, socket events, and FCM push notifications.
+ */
+async function notifyPropertyStatusChange(property, status, ownerId) {
+  const conversations = await Conversation.find({ propertyId: property._id })
+    .populate('participants', 'name fcmTokens');
+
+  if (!conversations.length) return;
+
+  const statusMessages = {
+    booked: 'This property has been marked as booked.',
+    rented: 'This property has been rented out.',
+    available: 'This property is available again.'
+  };
+  const content = statusMessages[status] || `Property status changed to ${status}.`;
+
+  const propertyTitle = property.title || 'A property';
+  const pushMessages = {
+    booked: `"${propertyTitle}" has been booked.`,
+    rented: `"${propertyTitle}" has been rented out.`,
+    available: `"${propertyTitle}" is available again!`
+  };
+  const pushBody = pushMessages[status] || `"${propertyTitle}" status changed to ${status}.`;
+
+  const io = getIo();
+
+  for (const conversation of conversations) {
+    // Create system message
+    const systemMessage = await Message.create({
+      conversationId: conversation._id,
+      sender: ownerId,
+      content,
+      isSystemMessage: true,
+      readBy: [ownerId]
+    });
+
+    // Update conversation's last message
+    conversation.lastMessage = {
+      content,
+      sender: ownerId,
+      createdAt: systemMessage.createdAt
+    };
+    await conversation.save();
+
+    const conversationIdStr = conversation._id.toString();
+
+    // Emit socket events to conversation room
+    if (io) {
+      io.to(conversationIdStr).emit('receive_message', {
+        _id: systemMessage._id,
+        conversationId: conversationIdStr,
+        sender: { _id: ownerId },
+        content,
+        isSystemMessage: true,
+        createdAt: systemMessage.createdAt
+      });
+
+      io.to(conversationIdStr).emit('property_status_changed', {
+        conversationId: conversationIdStr,
+        propertyId: property._id.toString(),
+        status
+      });
+    }
+
+    // Send FCM push to non-owner participants
+    for (const participant of conversation.participants) {
+      if (participant._id.toString() !== ownerId.toString()) {
+        sendPushToUser(participant._id, {
+          title: 'Property Update',
+          body: pushBody
+        }).catch(() => {});
+      }
+    }
+  }
+}
 
 /**
  * @desc    Increment property views

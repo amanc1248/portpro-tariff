@@ -567,6 +567,11 @@ exports.updateFcmToken = asyncHandler(async (req, res) => {
   if (action === 'remove') {
     user.fcmTokens = (user.fcmTokens || []).filter(t => t !== fcmToken);
   } else {
+    // Remove this token from any other user (device switched accounts)
+    await User.updateMany(
+      { _id: { $ne: user._id }, fcmTokens: fcmToken },
+      { $pull: { fcmTokens: fcmToken } }
+    );
     // Register — add if not already present
     if (!user.fcmTokens) user.fcmTokens = [];
     if (!user.fcmTokens.includes(fcmToken)) {
