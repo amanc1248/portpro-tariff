@@ -229,7 +229,8 @@ exports.sendImageMessage = asyncHandler(async (req, res) => {
                     senderName,
                     lastMessagePreview,
                     conversationId,
-                    propertyTitle
+                    propertyTitle,
+                    req.user.id
                 );
             }
         }
