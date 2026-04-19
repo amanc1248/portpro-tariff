@@ -172,7 +172,8 @@ exports.init = (socketIo) => {
                                 senderName,
                                 content,
                                 conversationId,
-                                propertyTitle
+                                propertyTitle,
+                                senderId
                             );
                         }
                     }
