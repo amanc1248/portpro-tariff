@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
@@ -13,7 +14,13 @@ const googleClient = new OAuth2Client();
  */
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d'
+    expiresIn: '1d'
+  });
+};
+
+const generateRefreshToken = (id) => {
+  return jwt.sign({ id, type: 'refresh' }, process.env.JWT_SECRET, {
+    expiresIn: '30d'
   });
 };
 
@@ -50,6 +57,12 @@ exports.googleSignIn = asyncHandler(async (req, res) => {
   });
 
   const payload = ticket.getPayload();
+  if (!payload.email_verified) {
+    return res.status(400).json({
+      success: false,
+      message: 'Google email is not verified'
+    });
+  }
   const { email, name, picture, sub: googleId } = payload;
 
   // Check if user already exists
@@ -88,12 +101,14 @@ exports.googleSignIn = asyncHandler(async (req, res) => {
   }
 
   const token = generateToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
 
   res.status(isNewUser ? 201 : 200).json({
     success: true,
     message: isNewUser ? 'Account created successfully' : 'Login successful',
     isNewUser,
     token,
+    refreshToken,
     user: user.getPublicProfile()
   });
 });
@@ -177,12 +192,14 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
 
     await user.updateLastLogin();
     const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     return res.status(200).json({
       success: true,
       message: 'Login successful',
       isNewUser: false,
       token,
+      refreshToken,
       user: user.getPublicProfile()
     });
   } else {
@@ -198,7 +215,7 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
 
     // Generate email from phone
     const email = `${phone.replace(/\+/g, '')}@gharbeti.app`;
-    const password = phone; // temporary password
+    const password = crypto.randomBytes(32).toString('hex');
 
     user = await User.create({
       name: name || `User ${phone.slice(-4)}`, // Placeholder name
@@ -211,12 +228,14 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
 
     await user.updateLastLogin();
     const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     return res.status(201).json({
       success: true,
       message: 'Account verified and created',
       isNewUser: true,
       token,
+      refreshToken,
       user: user.getPublicProfile()
     });
   }
@@ -269,8 +288,9 @@ exports.signup = asyncHandler(async (req, res) => {
     console.log('📱 User created successfully');
   }
 
-  // Generate token
+  // Generate tokens
   const token = generateToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
 
   // Update last login
   await user.updateLastLogin();
@@ -279,6 +299,7 @@ exports.signup = asyncHandler(async (req, res) => {
     success: true,
     message: 'Account created successfully',
     token,
+    refreshToken,
     user: user.getPublicProfile()
   });
 });
@@ -327,8 +348,9 @@ exports.signin = asyncHandler(async (req, res) => {
     });
   }
 
-  // Generate token
+  // Generate tokens
   const token = generateToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
 
   // Update last login
   await user.updateLastLogin();
@@ -337,6 +359,7 @@ exports.signin = asyncHandler(async (req, res) => {
     success: true,
     message: 'Login successful',
     token,
+    refreshToken,
     user: user.getPublicProfile()
   });
 });
@@ -395,7 +418,17 @@ exports.updateProfile = asyncHandler(async (req, res) => {
   const updateData = {};
   if (name) updateData.name = name;
   if (phone) updateData.phone = phone;
-  if (photoURL) updateData.photoURL = photoURL;
+  if (photoURL) {
+    try {
+      const url = new URL(photoURL);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return res.status(400).json({ success: false, message: 'Invalid photo URL' });
+      }
+      updateData.photoURL = photoURL;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid photo URL' });
+    }
+  }
   if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
   if (gender) updateData.gender = gender;
   if (occupation) updateData.occupation = occupation;
@@ -493,13 +526,15 @@ exports.updatePassword = asyncHandler(async (req, res) => {
   user.password = newPassword;
   await user.save();
 
-  // Generate new token
+  // Generate new tokens
   const token = generateToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
 
   res.status(200).json({
     success: true,
     message: 'Password updated successfully',
-    token
+    token,
+    refreshToken
   });
 });
 
@@ -538,7 +573,7 @@ exports.deleteAccount = asyncHandler(async (req, res) => {
   // Deactivate all user's properties
   await Property.updateMany(
     { owner: req.user._id },
-    { isActive: false, status: 'rented' }
+    { isActive: false, status: 'booked' }
   );
 
   res.status(200).json({
@@ -589,5 +624,55 @@ exports.updateFcmToken = asyncHandler(async (req, res) => {
     success: true,
     message: action === 'remove' ? 'Token removed' : 'Token registered'
   });
+});
+
+/**
+ * @desc    Refresh access token using refresh token
+ * @route   POST /api/auth/refresh-token
+ * @access  Public
+ */
+exports.refreshToken = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'Refresh token is required'
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token type'
+      });
+    }
+
+    const user = await User.findById(decoded.id);
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not found or deactivated'
+      });
+    }
+
+    const newToken = generateToken(user._id);
+    const newRefreshToken = generateRefreshToken(user._id);
+
+    res.status(200).json({
+      success: true,
+      token: newToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or expired refresh token. Please login again.'
+    });
+  }
 });
 

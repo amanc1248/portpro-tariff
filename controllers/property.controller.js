@@ -299,6 +299,14 @@ exports.getProperty = asyncHandler(async (req, res) => {
     });
   }
 
+  // Hide inactive/expired properties from public view (owners access via my-listings)
+  if (!property.isActive || (property.expiresAt && property.expiresAt < new Date())) {
+    return res.status(404).json({
+      success: false,
+      message: 'This listing is no longer available'
+    });
+  }
+
   res.status(200).json({
     success: true,
     property
@@ -388,21 +396,28 @@ exports.createProperty = asyncHandler(async (req, res) => {
     'title', 'description', 'propertyType', 'purpose',
     'rent', 'securityDeposit', 'negotiable', 'electricityIncluded', 'waterIncluded',
     'numberOfRooms', 'numberOfBathrooms', 'numberOfFloors', 'floorNumber', 'size', 'facing',
-    'petFriendly', 'bachelorsAllowed', 'familyOnly',
-    'availableFrom', 'minimumStayMonths'
   ];
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) allowed[field] = req.body[field];
   }
 
   // Create property
-  const property = await Property.create({
-    ...allowed,
-    location,
-    amenities,
-    images: imageUrls,
-    owner: req.user._id
-  });
+  let property;
+  try {
+    property = await Property.create({
+      ...allowed,
+      location,
+      amenities,
+      images: imageUrls,
+      owner: req.user._id
+    });
+  } catch (err) {
+    // Clean up uploaded images if property creation fails
+    if (req.files && req.files.length > 0) {
+      deleteMultipleImages(imageUrls).catch(() => {});
+    }
+    throw err;
+  }
 
   // Update user's total listings count
   await User.findByIdAndUpdate(req.user._id, {
@@ -453,8 +468,12 @@ exports.updateProperty = asyncHandler(async (req, res) => {
 
     imageUrls = newImageUrls;
   } else if (req.body.images) {
-    // If images are provided as URLs
-    imageUrls = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
+    // If images are provided as URLs (may be JSON string from form data)
+    let parsed = req.body.images;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (e) { /* not JSON */ }
+    }
+    imageUrls = Array.isArray(parsed) ? parsed : [parsed];
   }
 
   // Parse location if it's a string
@@ -509,8 +528,7 @@ exports.updateProperty = asyncHandler(async (req, res) => {
     'title', 'description', 'propertyType', 'purpose',
     'rent', 'securityDeposit', 'negotiable', 'electricityIncluded', 'waterIncluded',
     'numberOfRooms', 'numberOfBathrooms', 'numberOfFloors', 'floorNumber', 'size', 'facing',
-    'petFriendly', 'bachelorsAllowed', 'familyOnly',
-    'availableFrom', 'minimumStayMonths', 'status'
+    'status'
   ];
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) allowed[field] = req.body[field];
@@ -632,10 +650,10 @@ exports.getMyListings = asyncHandler(async (req, res) => {
 exports.updatePropertyStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
 
-  if (!status || !['available', 'booked', 'rented'].includes(status)) {
+  if (!status || !['available', 'booked'].includes(status)) {
     return res.status(400).json({
       success: false,
-      message: 'Please provide a valid status (available, booked, or rented)'
+      message: 'Please provide a valid status (available or booked)'
     });
   }
 
@@ -690,7 +708,6 @@ async function notifyPropertyStatusChange(property, status, ownerId) {
 
   const statusMessages = {
     booked: 'This property has been marked as booked.',
-    rented: 'This property has been rented out.',
     available: 'This property is available again.'
   };
   const content = statusMessages[status] || `Property status changed to ${status}.`;
@@ -698,7 +715,6 @@ async function notifyPropertyStatusChange(property, status, ownerId) {
   const propertyTitle = property.title || 'A property';
   const pushMessages = {
     booked: `"${propertyTitle}" has been booked.`,
-    rented: `"${propertyTitle}" has been rented out.`,
     available: `"${propertyTitle}" is available again!`
   };
   const pushBody = pushMessages[status] || `"${propertyTitle}" status changed to ${status}.`;

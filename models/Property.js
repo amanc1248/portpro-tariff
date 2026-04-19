@@ -147,23 +147,8 @@ const propertySchema = new mongoose.Schema({
     security: { type: Boolean, default: false },
     cctv: { type: Boolean, default: false },
     generator: { type: Boolean, default: false },
-    solarPanel: { type: Boolean, default: false }
-  },
-
-  // Tenant Preferences
-  petFriendly: {
-    type: Boolean,
-    default: false
-  },
-
-  bachelorsAllowed: {
-    type: Boolean,
-    default: true
-  },
-
-  familyOnly: {
-    type: Boolean,
-    default: false
+    solarPanel: { type: Boolean, default: false },
+    other: { type: String, default: '', maxlength: [200, 'Other amenities text too long'] }
   },
 
   // Media
@@ -178,23 +163,11 @@ const propertySchema = new mongoose.Schema({
     }
   },
 
-  // Availability
-  availableFrom: {
-    type: Date,
-    default: Date.now
-  },
-
-  minimumStayMonths: {
-    type: Number,
-    default: 1,
-    min: [1, 'Minimum stay must be at least 1 month']
-  },
-
   status: {
     type: String,
     enum: {
-      values: ['available', 'booked', 'rented'],
-      message: 'Status must be available, booked, or rented'
+      values: ['available', 'booked'],
+      message: 'Status must be available or booked'
     },
     default: 'available',
     index: true
@@ -274,9 +247,8 @@ const propertySchema = new mongoose.Schema({
 // INDEXES
 // ====================================
 propertySchema.index({ 'location.city': 1, 'location.area': 1 });
-// propertySchema.index({ 'location.coordinates': '2dsphere' }); // Defined in schema path
-propertySchema.index({ rent: 1 });
-propertySchema.index({ status: 1, isActive: 1 });
+// rent already has index:true in schema; status+isActive covered by compound index below
+// coordinates 2dsphere defined in schema path
 propertySchema.index({ createdAt: -1 });
 propertySchema.index({ isPremium: 1, isFeatured: 1 });
 propertySchema.index({ views: -1 });

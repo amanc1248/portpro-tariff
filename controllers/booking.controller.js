@@ -296,6 +296,15 @@ exports.acceptBookingRequest = asyncHandler(async (req, res) => {
     });
   }
 
+  // Verify property is still available
+  const property = await Property.findById(bookingRequest.property);
+  if (!property || property.status !== 'available') {
+    return res.status(400).json({
+      success: false,
+      message: 'This property is no longer available for booking'
+    });
+  }
+
   // Accept this request
   bookingRequest.status = 'accepted';
   bookingRequest.respondedAt = new Date();
