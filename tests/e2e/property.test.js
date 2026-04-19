@@ -270,7 +270,8 @@ describe('Property Endpoints', () => {
 
       expect(res.status).toBe(200);
       res.body.properties.forEach(p => {
-        expect(p.owner._id.toString()).toBe(ownerUser._id.toString());
+        const ownerId = p.owner._id || p.owner;
+        expect(ownerId.toString()).toBe(ownerUser._id.toString());
       });
     });
   });
@@ -282,10 +283,10 @@ describe('Property Endpoints', () => {
       const res = await request(app)
         .patch(`/api/properties/${property._id}/status`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ status: 'rented' });
+        .send({ status: 'booked' });
 
       expect(res.status).toBe(200);
-      expect(res.body.property.status).toBe('rented');
+      expect(res.body.property.status).toBe('booked');
     });
 
     it('should reject invalid status', async () => {

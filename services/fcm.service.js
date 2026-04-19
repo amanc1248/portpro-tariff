@@ -78,6 +78,7 @@ const sendPushToUser = async (userId, notification, data = {}) => {
           channelId: 'gharbetibaa_messages',
           priority: 'high',
           sound: 'default',
+          icon: 'ic_launcher',
         },
       },
       apns: {

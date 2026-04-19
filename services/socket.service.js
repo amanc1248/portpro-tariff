@@ -185,10 +185,9 @@ exports.init = (socketIo) => {
         // ─── TYPING INDICATORS ───
         socket.on('typing', (data) => {
             if (!checkSocketRate(socket.id, 'typing')) return;
-            // data: { conversationId, userId, userName }
             socket.to(data.conversationId).emit('user_typing', {
                 conversationId: data.conversationId,
-                userId: data.userId,
+                userId: socket.userId,
                 userName: data.userName,
             });
         });
@@ -196,27 +195,26 @@ exports.init = (socketIo) => {
         socket.on('stop_typing', (data) => {
             socket.to(data.conversationId).emit('user_stop_typing', {
                 conversationId: data.conversationId,
-                userId: data.userId,
+                userId: socket.userId,
             });
         });
 
         // ─── READ RECEIPTS ───
         socket.on('messages_read', async (data) => {
             if (!checkSocketRate(socket.id, 'messages_read')) return;
-            // data: { conversationId, userId }
             try {
                 await Message.updateMany(
                     {
                         conversationId: data.conversationId,
-                        sender: { $ne: data.userId },
-                        readBy: { $ne: data.userId }
+                        sender: { $ne: socket.userId },
+                        readBy: { $ne: socket.userId }
                     },
-                    { $addToSet: { readBy: data.userId } }
+                    { $addToSet: { readBy: socket.userId } }
                 );
 
                 socket.to(data.conversationId).emit('messages_read_ack', {
                     conversationId: data.conversationId,
-                    readBy: data.userId,
+                    readBy: socket.userId,
                 });
             } catch (error) {
                 console.error('Socket messages_read error:', error);
@@ -257,6 +255,7 @@ exports.init = (socketIo) => {
 
                 message.isDeleted = true;
                 message.content = 'This message was deleted';
+                message.imageUrl = undefined;
                 await message.save();
 
                 socket.broadcast.to(data.conversationId).emit('message_deleted', {

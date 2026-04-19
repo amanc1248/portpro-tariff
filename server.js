@@ -13,13 +13,18 @@ if (missing.length > 0) {
 }
 
 // Import app after env vars are loaded
-const { server } = require('./app');
+const { server, io } = require('./app');
 
 // ====================================
 // DATABASE CONNECTION
 // ====================================
 
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI, {
+  maxPoolSize: 50,
+  minPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+})
   .then(() => {
     console.log('✅ MongoDB Connected Successfully');
     console.log(`📊 Database: ${mongoose.connection.name}`);
@@ -28,6 +33,14 @@ mongoose.connect(process.env.MONGODB_URI)
     console.error('❌ MongoDB Connection Error:', err.message);
     process.exit(1);
   });
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB Runtime Error:', err.message);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB Disconnected. Attempting reconnect...');
+});
 
 // ====================================
 // START SERVER
@@ -66,11 +79,14 @@ process.on('unhandledRejection', (err) => {
 // Graceful shutdown
 const gracefulShutdown = (signal) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
-  server.close(() => {
-    console.log('HTTP server closed');
-    mongoose.connection.close(false).then(() => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
+  io.close(() => {
+    console.log('Socket.io closed');
+    server.close(() => {
+      console.log('HTTP server closed');
+      mongoose.connection.close(false).then(() => {
+        console.log('MongoDB connection closed');
+        process.exit(0);
+      });
     });
   });
 

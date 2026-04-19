@@ -41,6 +41,7 @@ jest.mock('google-auth-library', () => ({
     verifyIdToken: jest.fn().mockResolvedValue({
       getPayload: () => ({
         email: 'google@test.com',
+        email_verified: true,
         name: 'Google User',
         picture: 'https://photo.url/pic.jpg',
         sub: 'google-id-123'

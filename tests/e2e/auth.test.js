@@ -348,6 +348,86 @@ describe('Auth Endpoints', () => {
     });
   });
 
+  // ─── REFRESH TOKEN ───
+  describe('POST /api/auth/refresh-token', () => {
+    it('should return refreshToken on signup', async () => {
+      const res = await request(app)
+        .post('/api/auth/signup')
+        .send(validSignup);
+
+      expect(res.body.refreshToken).toBeDefined();
+    });
+
+    it('should return refreshToken on signin', async () => {
+      await request(app).post('/api/auth/signup').send(validSignup);
+      const res = await request(app)
+        .post('/api/auth/signin')
+        .send({ email: validSignup.email, password: validSignup.password });
+
+      expect(res.body.refreshToken).toBeDefined();
+    });
+
+    it('should refresh access token with valid refresh token', async () => {
+      const signup = await request(app)
+        .post('/api/auth/signup')
+        .send(validSignup);
+
+      const res = await request(app)
+        .post('/api/auth/refresh-token')
+        .send({ refreshToken: signup.body.refreshToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.refreshToken).toBeDefined();
+      // New token should be a valid JWT
+      expect(res.body.token.split('.')).toHaveLength(3);
+    });
+
+    it('should reject missing refresh token', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh-token')
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject invalid refresh token', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh-token')
+        .send({ refreshToken: 'invalid-token' });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('should reject access token used as refresh token', async () => {
+      const signup = await request(app)
+        .post('/api/auth/signup')
+        .send(validSignup);
+
+      const res = await request(app)
+        .post('/api/auth/refresh-token')
+        .send({ refreshToken: signup.body.token });
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toMatch(/Invalid token type/i);
+    });
+
+    it('should reject refresh token for deactivated user', async () => {
+      const signup = await request(app)
+        .post('/api/auth/signup')
+        .send(validSignup);
+
+      await User.findOneAndUpdate({ email: validSignup.email }, { isActive: false });
+
+      const res = await request(app)
+        .post('/api/auth/refresh-token')
+        .send({ refreshToken: signup.body.refreshToken });
+
+      expect(res.status).toBe(401);
+    });
+  });
+
   // ─── FCM TOKEN ───
   describe('PUT /api/auth/fcm-token', () => {
     it('should register FCM token', async () => {

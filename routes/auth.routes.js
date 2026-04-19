@@ -11,7 +11,8 @@ const {
   updateRole,
   updatePassword,
   deleteAccount,
-  updateFcmToken
+  updateFcmToken,
+  refreshToken
 } = require('../controllers/auth.controller');
 const { protect } = require('../middleware/auth.middleware');
 const {
@@ -57,6 +58,13 @@ router.post('/signup', signupValidation, signup);
  * @access  Public
  */
 router.post('/signin', signinValidation, signin);
+
+/**
+ * @route   POST /api/auth/refresh-token
+ * @desc    Refresh access token
+ * @access  Public
+ */
+router.post('/refresh-token', refreshToken);
 
 // ====================================
 // PROTECTED ROUTES (require authentication)
