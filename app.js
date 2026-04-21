@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
+const { xss } = require('express-xss-sanitizer');
 const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -24,7 +24,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Initialize Socket.io
-const socketOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
+const socketOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map(o => o.trim());
 const socketIsWildcard = socketOrigins.includes('*');
 const io = new Server(server, {
   cors: {
@@ -49,7 +49,7 @@ initFirebase();
 app.use(helmet());
 
 // CORS middleware
-const allowedOrigins = (process.env.FRONTEND_URL || '*').split(',').map(o => o.trim());
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173').split(',').map(o => o.trim());
 const isWildcard = allowedOrigins.includes('*');
 app.use(cors({
   origin: isWildcard ? '*' : allowedOrigins,

@@ -17,7 +17,7 @@ exports.getConversations = asyncHandler(async (req, res) => {
         participants: req.user.id
     })
         .populate('participants', 'name photoURL role')
-        .populate('propertyId', 'title description propertyType location rent images status isActive owner')
+        .populate('propertyId', 'title propertyType location rent images status isActive owner')
         .sort({ 'lastMessage.createdAt': -1 })
         .lean(); // Convert to plain JS objects for modification
 
@@ -81,15 +81,16 @@ exports.getMessages = asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
     const skip = (page - 1) * limit;
 
-    const messages = await Message.find({ conversationId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit);
+    const [messages, total] = await Promise.all([
+        Message.find({ conversationId })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        Message.countDocuments({ conversationId })
+    ]);
 
-    // Reverse to get chronological order for the client
     messages.reverse();
-
-    const total = await Message.countDocuments({ conversationId });
 
     res.status(200).json({
         success: true,
@@ -203,18 +204,22 @@ exports.sendImageMessage = asyncHandler(async (req, res) => {
         }
     });
 
-    // Emit to room
+    // Emit to conversation room + individual user rooms
+    const messagePayload = { ...populated.toObject(), conversationId };
     try {
         const io = getIo();
-        io.to(conversationId).emit('receive_message', {
-            ...populated.toObject(),
-            conversationId
-        });
+        io.to(conversationId).emit('receive_message', messagePayload);
+
+        for (const participant of conversation.participants) {
+            if (participant._id.toString() !== req.user.id) {
+                io.to(`user_${participant._id}`).emit('receive_message', messagePayload);
+            }
+        }
     } catch (err) {
         console.error('Socket emit error (sendImageMessage):', err.message);
     }
 
-    // Push notification to other participants
+    // Push notifications
     try {
         const senderUser = conversation.participants.find(
             p => p._id.toString() === req.user.id
@@ -259,13 +264,40 @@ exports.startConversation = asyncHandler(async (req, res) => {
         });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(recipientId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid recipient ID format'
+        });
+    }
+
+    if (recipientId === req.user.id) {
+        return res.status(400).json({
+            success: false,
+            message: 'Cannot start a conversation with yourself'
+        });
+    }
+
+    const recipient = await User.findOne({ _id: recipientId, isActive: true });
+    if (!recipient) {
+        return res.status(404).json({
+            success: false,
+            message: 'Recipient not found'
+        });
+    }
+
+    if (propertyId && !mongoose.Types.ObjectId.isValid(propertyId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid property ID format'
+        });
+    }
+
     // Build query to find existing conversation
     const query = {
         participants: { $all: [req.user.id, recipientId] }
     };
 
-    // If propertyId is provided, look for property-specific conversation
-    // This allows separate chats per property between same users
     if (propertyId) {
         query.propertyId = propertyId;
     }

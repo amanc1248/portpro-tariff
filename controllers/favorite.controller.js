@@ -7,13 +7,16 @@ const asyncHandler = require('../utils/asyncHandler');
  * @route   GET /api/favorites
  * @access  Private
  */
+const ALLOWED_FAVORITE_SORTS = ['-createdAt', 'createdAt', '-notes', 'notes'];
+
 exports.getFavorites = asyncHandler(async (req, res) => {
   const { page = 1, limit = 50, sort = '-createdAt' } = req.query;
+  const safeSort = ALLOWED_FAVORITE_SORTS.includes(sort) ? sort : '-createdAt';
 
   const skip = (page - 1) * limit;
 
   const favorites = await Favorite.find({ user: req.user._id })
-    .sort(sort)
+    .sort(safeSort)
     .skip(skip)
     .limit(parseInt(limit))
     .populate({
@@ -23,7 +26,8 @@ exports.getFavorites = asyncHandler(async (req, res) => {
         path: 'owner',
         select: 'name phone photoURL rating isVerified'
       }
-    });
+    })
+    .lean();
 
   // Filter out favorites where property might have been deleted
   const validFavorites = favorites.filter(fav => fav.property !== null);

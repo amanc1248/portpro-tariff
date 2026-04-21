@@ -42,17 +42,6 @@ favoriteSchema.index({ createdAt: -1 });
 // ====================================
 
 /**
- * Populate property and user details when querying
- */
-favoriteSchema.pre(/^find/, function(next) {
-  this.populate({
-    path: 'property',
-    select: 'title propertyType rent location images status isPremium isFeatured owner'
-  });
-  next();
-});
-
-/**
  * Update property's totalFavorites count when favorite is added
  */
 favoriteSchema.post('save', async function() {
@@ -112,7 +101,7 @@ favoriteSchema.statics.isFavorited = async function(userId, propertyId) {
   const favorite = await this.findOne({
     user: userId,
     property: propertyId
-  });
+  }).select('_id').lean();
   return !!favorite;
 };
 

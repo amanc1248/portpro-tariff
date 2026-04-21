@@ -64,7 +64,7 @@ exports.getProperties = asyncHandler(async (req, res) => {
   // Geospatial Search (Radius in km)
   const { lat, lng, radius } = req.query;
   if (lat && lng) {
-    const radiusInKm = parseFloat(radius) || 5; // Default 5km
+    const radiusInKm = Math.min(parseFloat(radius) || 5, 50);
     const radiusInMeters = radiusInKm * 1000;
 
     filter['location.coordinates'] = {
@@ -131,7 +131,9 @@ exports.getProperties = asyncHandler(async (req, res) => {
   const properties = await query
     .skip(skip)
     .limit(safeLimit)
-    .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+    .select('title propertyType rent location images status isPremium isFeatured isVerified views totalFavorites clicksOnCall owner rankScore createdAt expiresAt')
+    .populate('owner', 'name phone photoURL rating totalRatings isVerified')
+    .lean();
 
   // Create a separate filter for counting because $near is not supported in countDocuments
   // $near implies sorting, which countDocuments doesn't support
@@ -181,7 +183,9 @@ exports.getFeaturedProperties = asyncHandler(async (req, res) => {
   })
     .sort('-createdAt')
     .limit(limit)
-    .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+    .select('title propertyType rent location images status isPremium isFeatured isVerified owner rankScore createdAt')
+    .populate('owner', 'name phone photoURL rating totalRatings isVerified')
+    .lean();
 
   res.status(200).json({
     success: true,
@@ -246,35 +250,71 @@ exports.getExploreData = asyncHandler(async (req, res) => {
   })
     .sort(sortParam)
     .limit(6)
-    .populate('owner', 'name phone photoURL rating totalRatings isVerified');
+    .select('title propertyType rent location images status isPremium isFeatured isVerified owner rankScore createdAt')
+    .populate('owner', 'name phone photoURL rating totalRatings isVerified')
+    .lean();
 
-  // Get distinct cities that have properties
-  const cityCounts = await Property.aggregate([
+  // Build sort object for aggregation
+  const sortObj = {};
+  if (sortParam.startsWith('-')) {
+    sortObj[sortParam.slice(1)] = -1;
+  } else {
+    sortObj[sortParam] = 1;
+  }
+
+  // Single aggregation: group by city, take top N per city, populate owner inline
+  const cityResults = await Property.aggregate([
     { $match: baseFilter },
+    { $sort: sortObj },
     {
       $group: {
         _id: '$location.city',
-        count: { $sum: 1 }
+        count: { $sum: 1 },
+        properties: { $push: '$$ROOT' }
+      }
+    },
+    { $match: { _id: { $ne: null } } },
+    { $sort: { count: -1 } },
+    {
+      $project: {
+        _id: 1,
+        count: 1,
+        properties: { $slice: ['$properties', perCity] }
+      }
+    },
+    { $unwind: '$properties' },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'properties.owner',
+        foreignField: '_id',
+        pipeline: [
+          { $project: { name: 1, phone: 1, photoURL: 1, rating: 1, totalRatings: 1, isVerified: 1 } }
+        ],
+        as: 'properties._ownerDoc'
+      }
+    },
+    {
+      $addFields: {
+        'properties.owner': { $arrayElemAt: ['$properties._ownerDoc', 0] }
+      }
+    },
+    { $project: { 'properties._ownerDoc': 0 } },
+    {
+      $group: {
+        _id: '$_id',
+        count: { $first: '$count' },
+        properties: { $push: '$properties' }
       }
     },
     { $sort: { count: -1 } }
   ]);
 
-  // For each city, get top N properties (in parallel)
-  const cities = await Promise.all(
-    cityCounts
-      .filter(({ _id }) => _id)
-      .map(async ({ _id: cityName, count }) => {
-        const properties = await Property.find({
-          ...baseFilter,
-          'location.city': cityName
-        })
-          .sort(sortParam)
-          .limit(perCity)
-          .populate('owner', 'name phone photoURL rating totalRatings isVerified');
-        return { city: cityName, count, properties };
-      })
-  );
+  const cities = cityResults.map(({ _id: city, count, properties }) => ({
+    city,
+    count,
+    properties
+  }));
 
   res.status(200).json({
     success: true,
@@ -290,7 +330,7 @@ exports.getExploreData = asyncHandler(async (req, res) => {
  */
 exports.getProperty = asyncHandler(async (req, res) => {
   const property = await Property.findById(req.params.id)
-    .populate('owner', 'name phone email photoURL rating totalRatings isVerified createdAt');
+    .populate('owner', 'name phone photoURL rating totalRatings isVerified createdAt');
 
   if (!property) {
     return res.status(404).json({
@@ -314,6 +354,34 @@ exports.getProperty = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Pre-upload property images to Cloudinary
+ * @route   POST /api/properties/upload-images
+ * @access  Private (Owner/Both)
+ */
+exports.preUploadImages = asyncHandler(async (req, res) => {
+  if (req.user.role === 'tenant') {
+    return res.status(403).json({
+      success: false,
+      message: 'Only property owners can upload property images.'
+    });
+  }
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide at least one image'
+    });
+  }
+
+  const urls = await uploadMultipleImages(req.files, 'gharbeti/properties');
+
+  res.status(200).json({
+    success: true,
+    urls
+  });
+});
+
+/**
  * @desc    Create new property
  * @route   POST /api/properties
  * @access  Private (Owner/Both)
@@ -327,12 +395,25 @@ exports.createProperty = asyncHandler(async (req, res) => {
     });
   }
 
-  // Upload images if provided
+  // Accept pre-uploaded image URLs or upload from files
   let imageUrls = [];
-  if (req.files && req.files.length > 0) {
+  let preUploadedImages = req.body.preUploadedImages;
+  if (typeof preUploadedImages === 'string') {
+    try { preUploadedImages = JSON.parse(preUploadedImages); } catch (e) { preUploadedImages = null; }
+  }
+
+  if (Array.isArray(preUploadedImages) && preUploadedImages.length > 0) {
+    const cloudinaryPattern = /^https:\/\/res\.cloudinary\.com\/.+\/gharbeti\/properties\/.+/;
+    imageUrls = preUploadedImages.filter(url => typeof url === 'string' && cloudinaryPattern.test(url));
+    if (imageUrls.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid pre-uploaded image URLs'
+      });
+    }
+  } else if (req.files && req.files.length > 0) {
     imageUrls = await uploadMultipleImages(req.files, 'gharbeti/properties');
-  } else if (req.body.images) {
-    // If images are provided as URLs (for testing)
+  } else if (req.body.images && process.env.NODE_ENV === 'test') {
     imageUrls = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
   } else {
     return res.status(400).json({
@@ -579,13 +660,9 @@ exports.deleteProperty = asyncHandler(async (req, res) => {
     });
   }
 
-  // Delete images from Cloudinary (in background)
-  deleteMultipleImages(property.images).catch(err => {
-    console.error('Failed to delete images:', err);
-  });
-
-  // Delete property
-  await property.deleteOne();
+  // Soft delete property
+  property.isActive = false;
+  await property.save();
 
   // Update user's total listings count
   await User.findByIdAndUpdate(req.user._id, {

@@ -260,6 +260,14 @@ exports.signup = asyncHandler(async (req, res) => {
     console.log('📱 Signup request received');
   }
 
+  // Password strength validation
+  if (password && !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}/.test(password)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters with uppercase, lowercase, and a number'
+    });
+  }
+
   // Check if user already exists
   const existingUser = await User.findOne({ email });
 

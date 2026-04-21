@@ -71,6 +71,13 @@ exports.createBookingRequest = asyncHandler(async (req, res) => {
     });
   }
 
+  if (message && message.length > 500) {
+    return res.status(400).json({
+      success: false,
+      message: 'Booking message cannot exceed 500 characters'
+    });
+  }
+
   // Validate property exists and is available
   const property = await Property.findById(propertyId);
   if (!property || !property.isActive) {
