@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const {
   googleSignIn,
@@ -19,6 +20,12 @@ const {
   signupValidation,
   signinValidation
 } = require('../utils/validators');
+
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many refresh attempts, please try again later.' }
+});
 
 // ====================================
 // PUBLIC ROUTES
@@ -64,7 +71,7 @@ router.post('/signin', signinValidation, signin);
  * @desc    Refresh access token
  * @access  Public
  */
-router.post('/refresh-token', refreshToken);
+router.post('/refresh-token', refreshLimiter, refreshToken);
 
 // ====================================
 // PROTECTED ROUTES (require authentication)

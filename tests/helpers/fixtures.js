@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const validSignup = {
   name: 'Test User',
   email: 'newuser@test.com',
-  password: 'password123',
+  password: 'Password123',
   role: 'tenant'
 };
 

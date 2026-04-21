@@ -40,13 +40,15 @@ const signupValidation = [
   body('password')
     .notEmpty()
     .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters'),
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain uppercase, lowercase, and a number'),
   
   body('role')
     .optional()
-    .isIn(['tenant', 'owner', 'both'])
-    .withMessage('Role must be tenant, owner, or both'),
+    .isIn(['tenant', 'owner'])
+    .withMessage('Role must be tenant or owner'),
   
   validate
 ];

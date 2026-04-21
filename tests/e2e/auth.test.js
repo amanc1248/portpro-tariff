@@ -33,7 +33,7 @@ describe('Auth Endpoints', () => {
     it('should reject missing name', async () => {
       const res = await request(app)
         .post('/api/auth/signup')
-        .send({ email: 'a@b.com', password: 'password123' });
+        .send({ email: 'a@b.com', password: 'Password123' });
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
@@ -50,7 +50,7 @@ describe('Auth Endpoints', () => {
     it('should reject invalid email', async () => {
       const res = await request(app)
         .post('/api/auth/signup')
-        .send({ name: 'Test', email: 'notanemail', password: 'password123' });
+        .send({ name: 'Test', email: 'notanemail', password: 'Password123' });
 
       expect(res.status).toBe(400);
     });
@@ -91,7 +91,7 @@ describe('Auth Endpoints', () => {
     it('should reject non-existent email', async () => {
       const res = await request(app)
         .post('/api/auth/signin')
-        .send({ email: 'nope@test.com', password: 'password123' });
+        .send({ email: 'nope@test.com', password: 'Password123' });
 
       expect(res.status).toBe(401);
     });
@@ -192,22 +192,22 @@ describe('Auth Endpoints', () => {
   // ─── UPDATE PASSWORD ───
   describe('PUT /api/auth/password', () => {
     it('should update password', async () => {
-      const { token } = await createTestUser({ password: 'oldpass123' });
+      const { token } = await createTestUser({ password: 'Oldpass123' });
       const res = await request(app)
         .put('/api/auth/password')
         .set('Authorization', `Bearer ${token}`)
-        .send({ currentPassword: 'oldpass123', newPassword: 'newpass123' });
+        .send({ currentPassword: 'Oldpass123', newPassword: 'Newpass123' });
 
       expect(res.status).toBe(200);
       expect(res.body.token).toBeDefined();
     });
 
     it('should reject wrong current password', async () => {
-      const { token } = await createTestUser({ password: 'oldpass123' });
+      const { token } = await createTestUser({ password: 'Oldpass123' });
       const res = await request(app)
         .put('/api/auth/password')
         .set('Authorization', `Bearer ${token}`)
-        .send({ currentPassword: 'wrongpass', newPassword: 'newpass123' });
+        .send({ currentPassword: 'wrongpass', newPassword: 'Newpass123' });
 
       expect(res.status).toBe(401);
     });
@@ -226,11 +226,11 @@ describe('Auth Endpoints', () => {
   // ─── DELETE ACCOUNT ───
   describe('DELETE /api/auth/account', () => {
     it('should soft-delete account', async () => {
-      const { token, user } = await createTestUser({ password: 'password123' });
+      const { token, user } = await createTestUser({ password: 'Password123' });
       const res = await request(app)
         .delete('/api/auth/account')
         .set('Authorization', `Bearer ${token}`)
-        .send({ password: 'password123' });
+        .send({ password: 'Password123' });
 
       expect(res.status).toBe(200);
       const updated = await User.findById(user._id);
@@ -238,7 +238,7 @@ describe('Auth Endpoints', () => {
     });
 
     it('should reject wrong password', async () => {
-      const { token } = await createTestUser({ password: 'password123' });
+      const { token } = await createTestUser({ password: 'Password123' });
       const res = await request(app)
         .delete('/api/auth/account')
         .set('Authorization', `Bearer ${token}`)

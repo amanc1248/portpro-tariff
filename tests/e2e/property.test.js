@@ -206,6 +206,84 @@ describe('Property Endpoints', () => {
     });
   });
 
+  // ─── CREATE PROPERTY WITH PRE-UPLOADED IMAGES ───
+  describe('POST /api/properties (preUploadedImages)', () => {
+    it('should create property with pre-uploaded image URLs', async () => {
+      const res = await request(app)
+        .post('/api/properties')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          ...validProperty,
+          images: undefined,
+          preUploadedImages: JSON.stringify([
+            'https://res.cloudinary.com/test/image/upload/gharbeti/properties/img1.jpg',
+            'https://res.cloudinary.com/test/image/upload/gharbeti/properties/img2.jpg'
+          ])
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.property.images).toHaveLength(2);
+      expect(res.body.property.images[0]).toContain('res.cloudinary.com');
+    });
+
+    it('should reject invalid pre-uploaded URLs', async () => {
+      const res = await request(app)
+        .post('/api/properties')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          ...validProperty,
+          images: undefined,
+          preUploadedImages: JSON.stringify([
+            'https://evil.com/malicious.jpg'
+          ])
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Invalid pre-uploaded/i);
+    });
+
+    it('should reject empty pre-uploaded URLs array', async () => {
+      const { images, ...noImages } = validProperty;
+      const res = await request(app)
+        .post('/api/properties')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          ...noImages,
+          preUploadedImages: JSON.stringify([])
+        });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // ─── PRE-UPLOAD IMAGES ───
+  describe('POST /api/properties/upload-images', () => {
+    it('should reject without auth', async () => {
+      const res = await request(app)
+        .post('/api/properties/upload-images');
+
+      expect(res.status).toBe(401);
+    });
+
+    it('should reject tenant role', async () => {
+      const { token } = await createTestUser({ role: 'tenant' });
+      const res = await request(app)
+        .post('/api/properties/upload-images')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject without files', async () => {
+      const res = await request(app)
+        .post('/api/properties/upload-images')
+        .set('Authorization', `Bearer ${ownerToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/at least one image/i);
+    });
+  });
+
   // ─── UPDATE PROPERTY ───
   describe('PUT /api/properties/:id', () => {
     it('should update own property', async () => {
@@ -242,7 +320,8 @@ describe('Property Endpoints', () => {
 
       expect(res.status).toBe(200);
       const deleted = await Property.findById(property._id);
-      expect(deleted).toBeNull();
+      expect(deleted).not.toBeNull();
+      expect(deleted.isActive).toBe(false);
     });
 
     it('should reject deleting another user\'s property', async () => {

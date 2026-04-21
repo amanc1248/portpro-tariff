@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
+const { propertyIdValidation, objectIdValidation } = require('../utils/validators');
 const {
   createBookingRequest,
   getMyRequests,
@@ -17,10 +18,10 @@ router.use(protect);
 router.post('/request', createBookingRequest);
 router.get('/my-requests', getMyRequests);
 router.get('/owner-requests', getOwnerRequests);
-router.get('/property/:propertyId', getPropertyRequests);
-router.get('/check/:propertyId', checkBookingStatus);
-router.patch('/:id/accept', acceptBookingRequest);
-router.patch('/:id/reject', rejectBookingRequest);
-router.patch('/:id/cancel', cancelBookingRequest);
+router.get('/property/:propertyId', propertyIdValidation, getPropertyRequests);
+router.get('/check/:propertyId', propertyIdValidation, checkBookingStatus);
+router.patch('/:id/accept', objectIdValidation, acceptBookingRequest);
+router.patch('/:id/reject', objectIdValidation, rejectBookingRequest);
+router.patch('/:id/cancel', objectIdValidation, cancelBookingRequest);
 
 module.exports = router;

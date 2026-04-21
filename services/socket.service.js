@@ -64,14 +64,17 @@ exports.init = (socketIo) => {
     });
 
     io.on('connection', (socket) => {
-        console.log(`👤 User Connected: ${socket.id} (userId: ${socket.userId})`);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`👤 User Connected: ${socket.id} (userId: ${socket.userId})`);
+        }
 
-        // Track online status
+        // Track online status and join personal room for inbox updates
         if (socket.userId) {
             if (!onlineUsers.has(socket.userId)) {
                 onlineUsers.set(socket.userId, new Set());
             }
             onlineUsers.get(socket.userId).add(socket.id);
+            socket.join(`user_${socket.userId}`);
         }
 
         // Join a room (conversation or user's own room)
@@ -149,10 +152,12 @@ exports.init = (socketIo) => {
                     }
                 });
 
-                socket.broadcast.to(conversationId).emit('receive_message', {
+                const messagePayload = {
                     ...messageForClient.toObject(),
                     conversationId
-                });
+                };
+
+                socket.broadcast.to(conversationId).emit('receive_message', messagePayload);
 
                 // Push notification
                 const conversation = await Conversation.findById(conversationId)
@@ -167,6 +172,9 @@ exports.init = (socketIo) => {
 
                     for (const participant of conversation.participants) {
                         if (participant._id.toString() !== senderId) {
+                            // Emit to personal user room for inbox real-time updates
+                            io.to(`user_${participant._id}`).emit('receive_message', messagePayload);
+
                             sendChatPush(
                                 participant._id.toString(),
                                 senderName,

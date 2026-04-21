@@ -8,14 +8,26 @@ const { uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudina
  */
 exports.uploadImageBuffer = async (buffer, folder = 'gharbeti/properties') => {
   try {
-    // Convert buffer to base64 data URI
-    const b64 = Buffer.from(buffer).toString('base64');
-    const dataURI = 'data:image/jpeg;base64,' + b64;
-    
-    // Upload to Cloudinary
-    const result = await uploadToCloudinary(dataURI, folder);
-    
-    return result.url;
+    const result = await new Promise((resolve, reject) => {
+      const stream = require('cloudinary').v2.uploader.upload_stream(
+        {
+          folder,
+          resource_type: 'auto',
+          transformation: [
+            { width: 1200, height: 1200, crop: 'limit' },
+            { quality: 'auto:good' },
+            { fetch_format: 'auto' }
+          ]
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      stream.end(buffer);
+    });
+
+    return result.secure_url;
   } catch (error) {
     console.error('Image upload error:', error);
     throw new Error('Failed to upload image');

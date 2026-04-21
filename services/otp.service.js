@@ -45,8 +45,9 @@ const sendOtp = async (phone, channel = 'whatsapp') => {
 
         // 6. Send via Channel
         if (process.env.MOCK_OTP === 'true' || !process.env.TWILIO_ACCOUNT_SID) {
-            // MOCK MODE
-            console.log(`📱 MOCK OTP for ${phone} via ${channel.toUpperCase()} — check DB or use code: ${otp}`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`📱 MOCK OTP for ${phone} via ${channel.toUpperCase()} — check DB or use code: ${otp}`);
+            }
             return true;
         }
 
@@ -66,14 +67,18 @@ const sendOtp = async (phone, channel = 'whatsapp') => {
             const from = rawNumber.startsWith('whatsapp:') ? rawNumber : `whatsapp:${rawNumber}`;
             const to = `whatsapp:${phone}`;
 
-            console.log(`🚀 Attempting to send WhatsApp: From [${from}] To [${to}]`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`🚀 Attempting to send WhatsApp: From [${from}] To [${to}]`);
+            }
 
             await client.messages.create({
                 body: `Your Gharbeti verification code is ${otp}`,
                 from: from,
                 to: to
             });
-            console.log(`✅ WhatsApp sent to ${phone}`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ WhatsApp sent to ${phone}`);
+            }
         } else if (channel === 'viber') {
             // For Viber, 'from' should be your Viber Service ID or Twilio number enabled for Viber
             // Note: Viber often requires a verified sender ID.
@@ -88,7 +93,9 @@ const sendOtp = async (phone, channel = 'whatsapp') => {
                 // But for simplicity/safety with generic numbers let's try standard format first or viber prefix
                 to: `viber:${phone}`
             });
-            console.log(`✅ Viber message sent to ${phone}`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ Viber message sent to ${phone}`);
+            }
         } else {
             // Fallback SMS
             await client.messages.create({
@@ -96,7 +103,9 @@ const sendOtp = async (phone, channel = 'whatsapp') => {
                 from: process.env.TWILIO_PHONE_NUMBER,
                 to: phone
             });
-            console.log(`✅ SMS sent to ${phone}`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ SMS sent to ${phone}`);
+            }
         }
 
         return true;

@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const {
   getProperties,
@@ -6,6 +7,7 @@ const {
   getExploreData,
   getProperty,
   createProperty,
+  preUploadImages,
   updateProperty,
   deleteProperty,
   getMyListings,
@@ -19,6 +21,12 @@ const {
   createPropertyValidation,
   objectIdValidation
 } = require('../utils/validators');
+
+const engagementLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many requests, please try again later.' }
+});
 
 // ====================================
 // PUBLIC ROUTES
@@ -60,14 +68,14 @@ router.get('/:id', objectIdValidation, getProperty);
  * @desc    Increment property views
  * @access  Public
  */
-router.post('/:id/view', objectIdValidation, incrementViews);
+router.post('/:id/view', engagementLimiter, objectIdValidation, incrementViews);
 
 /**
  * @route   POST /api/properties/:id/call
  * @desc    Increment property call clicks
  * @access  Public
  */
-router.post('/:id/call', objectIdValidation, incrementCallClicks);
+router.post('/:id/call', engagementLimiter, objectIdValidation, incrementCallClicks);
 
 // ====================================
 // PROTECTED ROUTES (require authentication)
@@ -81,6 +89,20 @@ router.post('/:id/call', objectIdValidation, incrementCallClicks);
 router.get('/me/listings', protect, getMyListings);
 
 /**
+ * @route   POST /api/properties/upload-images
+ * @desc    Pre-upload property images to Cloudinary
+ * @access  Private (Owner/Both)
+ */
+router.post(
+  '/upload-images',
+  protect,
+  isOwner,
+  uploadPropertyImages,
+  handleUploadErrors,
+  preUploadImages
+);
+
+/**
  * @route   POST /api/properties
  * @desc    Create new property
  * @access  Private (Owner/Both)
@@ -91,6 +113,7 @@ router.post(
   isOwner,
   uploadPropertyImages,
   handleUploadErrors,
+  createPropertyValidation,
   createProperty
 );
 

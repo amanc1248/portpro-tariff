@@ -5,7 +5,7 @@ const createTestUser = async (overrides = {}) => {
   const defaults = {
     name: 'Test User',
     email: `test-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`,
-    password: 'password123',
+    password: 'Password123',
     role: 'tenant'
   };
   const user = await User.create({ ...defaults, ...overrides });

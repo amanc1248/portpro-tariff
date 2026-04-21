@@ -39,13 +39,13 @@ describe('Socket.io Events', () => {
     user1 = await User.create({
       name: 'Socket User 1',
       email: `socket1-${Date.now()}@test.com`,
-      password: 'password123',
+      password: 'Password123',
       role: 'tenant'
     });
     user2 = await User.create({
       name: 'Socket User 2',
       email: `socket2-${Date.now()}@test.com`,
-      password: 'password123',
+      password: 'Password123',
       role: 'owner'
     });
 
