@@ -82,13 +82,13 @@ const createPropertyValidation = [
     .withMessage('Title is required')
     .isLength({ min: 5, max: 100 })
     .withMessage('Title must be between 5 and 100 characters'),
-  
+
   body('propertyType')
     .notEmpty()
     .withMessage('Property type is required')
     .isIn(['room', 'flat', 'apartment', 'hostel', 'house'])
     .withMessage('Invalid property type'),
-  
+
   body('rent')
     .notEmpty()
     .withMessage('Rent is required')
@@ -96,17 +96,7 @@ const createPropertyValidation = [
     .withMessage('Rent must be a number')
     .isFloat({ min: 0 })
     .withMessage('Rent must be a positive number'),
-  
-  body('location.city')
-    .trim()
-    .notEmpty()
-    .withMessage('City is required'),
-  
-  body('location.area')
-    .trim()
-    .notEmpty()
-    .withMessage('Area is required'),
-  
+
   validate
 ];
 
